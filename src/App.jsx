@@ -2234,9 +2234,10 @@ export default function App() {
                 onBack={handleBackToDictionary}
               />
             )}
-            {view === 'register' && <RegisterView defaultNickname={nickname} onSubmit={handleRegisterNew} />}
+            {/* 등록 화면은 예전에 입력했던 닉네임을 자동으로 채우지 않고, 매번 새로 입력하게 해요. */}
+            {view === 'register' && <RegisterView defaultNickname="" onSubmit={handleRegisterNew} />}
             {view === 'registerExpression' && (
-              <RegisterExpressionView defaultNickname={nickname} onSubmit={handleRegisterExpression} />
+              <RegisterExpressionView defaultNickname="" onSubmit={handleRegisterExpression} />
             )}
             {view === 'admin' && (
               <AdminView
