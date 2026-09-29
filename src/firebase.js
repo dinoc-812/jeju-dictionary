@@ -7,9 +7,7 @@
 
 import { initializeApp } from 'firebase/app';
 import {
-  initializeFirestore,
-  persistentLocalCache,
-  persistentMultipleTabManager,
+  getFirestore,
   collection,
   doc,
   getDoc,
@@ -29,13 +27,12 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 
-// 브라우저에 낱말 데이터를 캐시해두는 설정이에요.
-// 처음 접속할 때는 인터넷에서 받아와야 하지만, 같은 기기·같은 브라우저로
-// 다시 들어오면 캐시된 데이터를 먼저 보여주고 뒤에서 최신 내용으로 갱신해서
-// 두 번째 방문부터는 훨씬 빠르게 느껴져요.
-export const db = initializeFirestore(app, {
-  localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
-});
+// 이전에는 브라우저 로컬 캐시(persistentLocalCache)를 켜뒀었는데, 그러면
+// 저장 요청이 실제로 서버까지 갔는지와 상관없이 화면에는 항상 "성공한 것처럼"
+// 보일 수 있어서(로컬 캐시에서 읽으니까) 문제 진단이 어려워졌어요.
+// 그래서 지금은 매번 실제 서버와 직접 통신하는 기본 방식으로 되돌렸어요 —
+// 저장이 실패하면 바로 화면에 에러가 뜨도록요.
+export const db = getFirestore(app);
 
 // 낱말 정보는 두 곳에 나눠서 저장해요.
 // 1) words 컬렉션: 표준어/제주어/뜻 같은 "가벼운" 글자 정보만.
