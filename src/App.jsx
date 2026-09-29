@@ -1,6 +1,18 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Home, BookOpen, PenSquare, ShieldCheck, Sparkles, ChevronRight, Shuffle, Mic, Square } from 'lucide-react';
-import { dbGetWords, dbGetWordMedia, dbSaveWord, dbDeleteWord, dbGetToday, dbSetToday } from './firebase';
+import { Home, BookOpen, PenSquare, ShieldCheck, Sparkles, ChevronRight, Shuffle, Mic, Square, MessageSquare } from 'lucide-react';
+import {
+  dbGetWords,
+  dbGetWordMedia,
+  dbSaveWord,
+  dbDeleteWord,
+  dbGetToday,
+  dbSetToday,
+  dbGetProverbs,
+  dbSaveProverb,
+  dbDeleteProverb,
+  dbGetTodayProverb,
+  dbSetTodayProverb,
+} from './firebase';
 
 // ==================== 상수 ====================
 const NICK_KEY = 'jejumal:nickname'; // 닉네임은 각자 기기(브라우저)에만 저장돼요.
@@ -11,12 +23,19 @@ const MAX_IMAGE_BYTES = 500000; // 이미지 첨부 용량 제한(약 500KB, bas
 const MAX_IMAGE_DIMENSION = 700; // 첨부 이미지 리사이즈 기준(긴 변, px)
 const MAX_AUDIO_BYTES = 200000; // 음성 첨부 용량 제한(약 200KB, base64 인코딩 후 기준)
 const MAX_RECORD_MS = 15000; // 녹음 최대 길이(15초)
+const PAGE_SIZE = 20; // 사전·관리자 화면 한 페이지에 보여줄 개수
 const EXTRA_REGIONS = [
   { key: 'chungcheong', label: '충청도' },
   { key: 'gyeongsang', label: '경상도' },
   { key: 'gangwon', label: '강원도' },
   { key: 'other', label: '기타 지역' },
 ];
+// 낱말/표현을 "수정"할 때(수정 제안, 관리자 수정) 어떤 필드까지 새 값으로
+// 덮어쓸지 정해두는 목록이에요. (등록자 닉네임 같은 메타 정보는 건드리지 않아요.)
+const CONTENT_FIELDS = {
+  word: ['standard', 'jeju', 'chuja', 'meaning', 'examples', 'extraDialect'],
+  expression: ['language', 'text', 'meaning'],
+};
 
 // ==================== 유틸 함수 ====================
 function uid() {
@@ -38,6 +57,10 @@ function hashString(str) {
   return hash;
 }
 
+function itemKind(w) {
+  return (w && w.kind) || 'word';
+}
+
 function sortWords(list, field, direction) {
   const sorted = [...list].sort((a, b) => {
     let cmp;
@@ -54,7 +77,16 @@ function sortWords(list, field, direction) {
 function filterWords(list, term) {
   if (!term.trim()) return list;
   const t = term.trim().toLowerCase();
-  return list.filter((w) => [w.standard, w.jeju, w.chuja].some((v) => (v || '').toLowerCase().includes(t)));
+  return list.filter((w) =>
+    [w.standard, w.jeju, w.chuja, w.text, w.meaning].some((v) => (v || '').toLowerCase().includes(t))
+  );
+}
+
+function paginate(list, page, pageSize) {
+  const totalPages = Math.max(1, Math.ceil(list.length / pageSize));
+  const clampedPage = Math.min(Math.max(1, page), totalPages);
+  const pageItems = list.slice((clampedPage - 1) * pageSize, clampedPage * pageSize);
+  return { pageItems, totalPages, clampedPage };
 }
 
 function resizeImageFile(file, maxDimension, quality) {
@@ -104,6 +136,28 @@ async function getOrPickTodayWord(approvedWords) {
   const picked = approvedWords[idx];
   try {
     await dbSetToday({ date: dateStr, wordId: picked.id });
+  } catch (e) {
+    // 저장 실패해도 화면에는 표시
+  }
+  return picked;
+}
+
+async function getOrPickTodayProverb(proverbs) {
+  const dateStr = new Date().toISOString().slice(0, 10);
+  try {
+    const saved = await dbGetTodayProverb();
+    if (saved && saved.date === dateStr) {
+      const found = proverbs.find((p) => p.id === saved.proverbId);
+      if (found) return found;
+    }
+  } catch (e) {
+    // 저장된 값이 없으면 새로 고른다
+  }
+  if (proverbs.length === 0) return null;
+  const idx = hashString(`proverb-${dateStr}`) % proverbs.length;
+  const picked = proverbs[idx];
+  try {
+    await dbSetTodayProverb({ date: dateStr, proverbId: picked.id });
   } catch (e) {
     // 저장 실패해도 화면에는 표시
   }
@@ -203,6 +257,7 @@ function GlobalStyle() {
         font-family: 'Jua', sans-serif; font-weight: 400; font-size: clamp(2.2rem, 7vw, 3.2rem);
         color: var(--accent-600); margin: 0 0 0.5rem; line-height: 1.15;
       }
+      .today-hero.proverb { font-size: clamp(1.4rem, 5vw, 2.1rem); line-height: 1.4; }
       .today-sub { color: var(--ink-500); margin: 0 0 1rem; font-weight: 500; }
       .today-image img { max-width: 100%; border-radius: 16px; margin-bottom: 1rem; display: block; }
       .today-example {
@@ -219,6 +274,7 @@ function GlobalStyle() {
       .chip-jeju { background: var(--tangerine-500); color: var(--white); }
       .chip-chuja { background: var(--sea-600); color: var(--white); }
       .chip-extra { background: var(--canola-400); color: var(--ink-800); }
+      .chip-kind { background: var(--ink-500); color: var(--white); }
       .search-input {
         width: 100%; padding: 0.7rem 1rem; border: 2px solid var(--line);
         border-radius: 16px; background: var(--white); margin-bottom: 0.9rem;
@@ -245,6 +301,7 @@ function GlobalStyle() {
       }
       .word-row-head:hover { border-color: var(--accent-500); }
       .word-row-main { display: grid; grid-template-columns: 1fr 1fr 1fr auto; gap: 0.5rem; align-items: center; }
+      .word-row-main.expression-row-main { grid-template-columns: 1fr auto; }
       .word-value { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.95rem; font-weight: 500; }
       .word-value.standard { color: var(--ink-800); }
       .word-value.jeju { color: var(--tangerine-600); }
@@ -351,7 +408,7 @@ function GlobalStyle() {
         background: var(--white); display: flex; flex-direction: column; gap: 0.5rem;
       }
       .pending-type { margin: 0; font-size: 0.78rem; color: var(--sea-700); font-weight: 500; }
-      .pending-fields { display: flex; gap: 1rem; flex-wrap: wrap; font-size: 0.92rem; }
+      .pending-fields { display: flex; gap: 1rem; flex-wrap: wrap; align-items: center; font-size: 0.92rem; }
       .pending-image-preview img { max-width: 140px; border-radius: 12px; display: block; }
       .stats-list { display: flex; flex-direction: column; gap: 0.6rem; }
       .stats-row { display: grid; grid-template-columns: 22px minmax(60px, 110px) 1fr 44px; gap: 0.7rem; align-items: center; }
@@ -363,6 +420,19 @@ function GlobalStyle() {
       .confirm-inline { display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; color: var(--ink-500); flex-wrap: wrap; }
       .empty-state { color: var(--ink-500); padding: 1.5rem 0; }
       .loading { color: var(--ink-500); padding: 2rem 0; text-align: center; }
+      .pager { display: flex; align-items: center; justify-content: center; gap: 0.5rem; margin-top: 1.25rem; flex-wrap: wrap; }
+      .pager > button {
+        border: 2px solid var(--line); background: var(--white); border-radius: 999px;
+        padding: 0.4rem 0.9rem; cursor: pointer; color: var(--ink-800); font-weight: 500;
+      }
+      .pager > button:disabled { opacity: 0.4; cursor: default; }
+      .pager-numbers { display: flex; align-items: center; gap: 0.25rem; }
+      .pager-number {
+        min-width: 2.2rem; height: 2.2rem; border: 2px solid var(--line); background: var(--white);
+        border-radius: 999px; cursor: pointer; color: var(--ink-800); font-weight: 500; font-size: 0.85rem;
+      }
+      .pager-number.active { border-color: var(--accent-500); background: var(--accent-500); color: var(--white); }
+      .pager-dots { color: var(--ink-500); font-size: 0.85rem; padding: 0 0.15rem; }
       .app-footer { text-align: center; padding: 1.25rem; color: var(--ink-500); font-size: 0.8rem; border-top: 3px solid var(--line); }
     `}</style>
   );
@@ -371,6 +441,60 @@ function GlobalStyle() {
 // ==================== 작은 컴포넌트 ====================
 function Chip({ type, children }) {
   return <span className={`chip chip-${type}`}>{children}</span>;
+}
+
+// 페이지가 많을 때 번호를 다 늘어놓지 않도록, 처음/끝/현재 주변만 보여주고
+// 나머지는 "…"으로 줄여줘요. 예: 1 … 4 5 [6] 7 8 … 20
+function getPageNumbers(page, totalPages) {
+  const delta = 1;
+  const range = [];
+  for (let i = 1; i <= totalPages; i++) {
+    if (i === 1 || i === totalPages || (i >= page - delta && i <= page + delta)) {
+      range.push(i);
+    }
+  }
+  const withDots = [];
+  let prev = 0;
+  for (const i of range) {
+    if (prev) {
+      if (i - prev === 2) {
+        withDots.push(prev + 1);
+      } else if (i - prev > 2) {
+        withDots.push('...');
+      }
+    }
+    withDots.push(i);
+    prev = i;
+  }
+  return withDots;
+}
+
+function Pager({ page, totalPages, onChange }) {
+  if (totalPages <= 1) return null;
+  const pageNumbers = getPageNumbers(page, totalPages);
+  return (
+    <div className="pager">
+      <button type="button" onClick={() => onChange(Math.max(1, page - 1))} disabled={page <= 1}>이전</button>
+      <div className="pager-numbers">
+        {pageNumbers.map((p, idx) =>
+          p === '...' ? (
+            <span key={`dots-${idx}`} className="pager-dots">…</span>
+          ) : (
+            <button
+              key={p}
+              type="button"
+              className={`pager-number ${p === page ? 'active' : ''}`}
+              aria-current={p === page ? 'page' : undefined}
+              onClick={() => onChange(p)}
+            >
+              {p}
+            </button>
+          )
+        )}
+      </div>
+      <button type="button" onClick={() => onChange(Math.min(totalPages, page + 1))} disabled={page >= totalPages}>다음</button>
+    </div>
+  );
 }
 
 function Field({ label, value, onChange, required, placeholder, accent, type, onEnter }) {
@@ -394,10 +518,13 @@ function Field({ label, value, onChange, required, placeholder, accent, type, on
   );
 }
 
-function TextArea({ label, value, onChange, accent }) {
+function TextArea({ label, value, onChange, accent, required }) {
   return (
     <label className={`field ${accent ? 'accent-' + accent : ''}`}>
-      <span className="field-label">{label}</span>
+      <span className="field-label">
+        {label}
+        {required && <span className="req">*</span>}
+      </span>
       <textarea className="field-textarea" rows={2} value={value} onChange={(e) => onChange(e.target.value)} />
     </label>
   );
@@ -536,8 +663,8 @@ function AudioField({ label, value, onChange, accent }) {
   );
 }
 
-// ==================== 단어 등록/수정 공용 폼 ====================
-function WordForm({ initial, defaultNickname, submitLabel, onSubmit, onCancel }) {
+// ==================== 낱말 등록/수정 공용 폼 ====================
+function WordForm({ initial, defaultNickname, showNickname = true, submitLabel, onSubmit, onCancel }) {
   const [standard, setStandard] = useState(initial?.standard || '');
   const [jeju, setJeju] = useState(initial?.jeju || '');
   const [chuja, setChuja] = useState(initial?.chuja || '');
@@ -600,7 +727,7 @@ function WordForm({ initial, defaultNickname, submitLabel, onSubmit, onCancel })
       setError('표준어, 제주어, 추자생활언어는 모두 입력해야 해요.');
       return;
     }
-    if (!nickname.trim()) {
+    if (showNickname && !nickname.trim()) {
       setError('닉네임을 입력해주세요.');
       return;
     }
@@ -629,7 +756,7 @@ function WordForm({ initial, defaultNickname, submitLabel, onSubmit, onCancel })
             example: extraExample.trim(),
           }
         : null,
-      nickname: nickname.trim(),
+      nickname: showNickname ? nickname.trim() : undefined,
     });
   }
 
@@ -698,7 +825,107 @@ function WordForm({ initial, defaultNickname, submitLabel, onSubmit, onCancel })
       <AudioField label="제주어 예문 음성 (선택)" value={audioJeju} onChange={setAudioJeju} accent="jeju" />
       <TextArea label="추자생활언어 예문" value={exChuja} onChange={setExChuja} accent="chuja" />
       <AudioField label="추자생활언어 예문 음성 (선택)" value={audioChuja} onChange={setAudioChuja} accent="chuja" />
-      <Field label="닉네임" required value={nickname} onChange={setNickname} placeholder="등록자 닉네임" />
+      {showNickname && <Field label="닉네임" required value={nickname} onChange={setNickname} placeholder="등록자 닉네임" />}
+      {error && <p className="form-error">{error}</p>}
+      <div className="form-actions">
+        <button type="button" className="btn-primary" onClick={handleSubmit}>{submitLabel}</button>
+        {onCancel && (
+          <button type="button" className="btn-ghost" onClick={onCancel}>취소</button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ==================== 표현(제주어 문장 등) 등록/수정 공용 폼 ====================
+function ExpressionForm({ initial, defaultNickname, showNickname = true, submitLabel, onSubmit, onCancel }) {
+  const [language, setLanguage] = useState(initial?.language || 'jeju');
+  const [text, setText] = useState(initial?.text || '');
+  const [meaning, setMeaning] = useState(initial?.meaning || '');
+  const [imageUrl, setImageUrl] = useState(initial?.imageUrl || '');
+  const [imageProcessing, setImageProcessing] = useState(false);
+  const [audioMain, setAudioMain] = useState(initial?.audio?.main || '');
+  const [nickname, setNickname] = useState(defaultNickname || '');
+  const [error, setError] = useState('');
+
+  const accent = language === 'chuja' ? 'chuja' : 'jeju';
+
+  async function handleFileChange(e) {
+    const file = e.target.files && e.target.files[0];
+    e.target.value = '';
+    if (!file) return;
+    setError('');
+    setImageProcessing(true);
+    try {
+      const dataUrl = await resizeImageFile(file, MAX_IMAGE_DIMENSION, 0.8);
+      if (dataUrl.length > MAX_IMAGE_BYTES) {
+        setError('이미지 용량이 너무 커요. 더 작은 사진을 선택해주세요.');
+      } else {
+        setImageUrl(dataUrl);
+      }
+    } catch (err) {
+      setError('이미지를 처리하는 중 문제가 생겼어요. 다른 사진으로 다시 시도해주세요.');
+    } finally {
+      setImageProcessing(false);
+    }
+  }
+
+  function handleRemoveImage() {
+    setImageUrl('');
+  }
+
+  function handleSubmit() {
+    if (!text.trim()) {
+      setError('문장을 입력해주세요.');
+      return;
+    }
+    if (!meaning.trim()) {
+      setError('뜻을 입력해주세요.');
+      return;
+    }
+    if (showNickname && !nickname.trim()) {
+      setError('닉네임을 입력해주세요.');
+      return;
+    }
+    setError('');
+    onSubmit({
+      language,
+      text: text.trim(),
+      meaning: meaning.trim(),
+      imageUrl: imageUrl.trim(),
+      audio: { main: audioMain },
+      nickname: showNickname ? nickname.trim() : undefined,
+    });
+  }
+
+  return (
+    <div className="word-form">
+      <p className="form-subtitle">어떤 언어의 표현인가요?</p>
+      <div className="extra-region-tabs">
+        <button type="button" className={`extra-region-tab ${language === 'jeju' ? 'active' : ''}`} onClick={() => setLanguage('jeju')}>제주어</button>
+        <button type="button" className={`extra-region-tab ${language === 'chuja' ? 'active' : ''}`} onClick={() => setLanguage('chuja')}>추자생활언어</button>
+      </div>
+      <TextArea label="문장" required value={text} onChange={setText} accent={accent} />
+      <TextArea label="뜻" required value={meaning} onChange={setMeaning} />
+      <div className="field">
+        <span className="field-label">이미지 첨부 (선택)</span>
+        <input type="file" accept="image/*" className="field-file" onChange={handleFileChange} disabled={imageProcessing} />
+      </div>
+      {imageProcessing && <p className="muted small">이미지를 준비하고 있어요...</p>}
+      {imageUrl.trim() && (
+        <div className="image-preview">
+          <img
+            src={imageUrl}
+            alt="미리보기"
+            onError={(e) => {
+              e.target.style.display = 'none';
+            }}
+          />
+          <button type="button" className="btn-ghost danger image-remove" onClick={handleRemoveImage}>이미지 제거</button>
+        </div>
+      )}
+      <AudioField label="문장 음성 (선택)" value={audioMain} onChange={setAudioMain} accent={accent} />
+      {showNickname && <Field label="닉네임" required value={nickname} onChange={setNickname} placeholder="등록자 닉네임" />}
       {error && <p className="form-error">{error}</p>}
       <div className="form-actions">
         <button type="button" className="btn-primary" onClick={handleSubmit}>{submitLabel}</button>
@@ -745,9 +972,10 @@ function CommentSection({ comments, defaultNickname, onAdd }) {
   );
 }
 
-// ==================== 단어 상세 ====================
+// ==================== 낱말/표현 상세 ====================
 function WordDetail({ word, defaultNickname, onAddComment, onSuggestEdit }) {
   const [suggesting, setSuggesting] = useState(false);
+  const kind = itemKind(word);
   const ex = word.examples || {};
   const audio = word.audio || {};
   const extra = word.extraDialect || null;
@@ -759,28 +987,36 @@ function WordDetail({ word, defaultNickname, onAddComment, onSuggestEdit }) {
         <div className="detail-card detail-image">
           <img
             src={word.imageUrl}
-            alt={word.standard}
+            alt={word.standard || word.text}
             onError={(e) => {
               e.target.style.display = 'none';
             }}
           />
         </div>
       )}
-      <div className="detail-card">
-        <p className="detail-card-title">예문</p>
-        <div className="detail-examples">
-          {ex.jeju && <p><Chip type="jeju">제주어</Chip>{ex.jeju}</p>}
-          {audio.jeju && (
-            <p className="detail-audio-row"><Chip type="jeju">제주어 음성</Chip><audio controls src={audio.jeju} /></p>
-          )}
-          {ex.chuja && <p><Chip type="chuja">추자생활언어</Chip>{ex.chuja}</p>}
-          {audio.chuja && (
-            <p className="detail-audio-row"><Chip type="chuja">추자생활언어 음성</Chip><audio controls src={audio.chuja} /></p>
-          )}
-          {extra && extra.example && <p><Chip type="extra">{extra.regionLabel}</Chip>{extra.example}</p>}
-          {!hasExample && <p className="muted">등록된 예문이 없어요.</p>}
+      {kind === 'word' && (
+        <div className="detail-card">
+          <p className="detail-card-title">예문</p>
+          <div className="detail-examples">
+            {ex.jeju && <p><Chip type="jeju">제주어</Chip>{ex.jeju}</p>}
+            {audio.jeju && (
+              <p className="detail-audio-row"><Chip type="jeju">제주어 음성</Chip><audio controls src={audio.jeju} /></p>
+            )}
+            {ex.chuja && <p><Chip type="chuja">추자생활언어</Chip>{ex.chuja}</p>}
+            {audio.chuja && (
+              <p className="detail-audio-row"><Chip type="chuja">추자생활언어 음성</Chip><audio controls src={audio.chuja} /></p>
+            )}
+            {extra && extra.example && <p><Chip type="extra">{extra.regionLabel}</Chip>{extra.example}</p>}
+            {!hasExample && <p className="muted">등록된 예문이 없어요.</p>}
+          </div>
         </div>
-      </div>
+      )}
+      {kind === 'expression' && audio.main && (
+        <div className="detail-card">
+          <p className="detail-card-title">음성</p>
+          <div className="detail-audio-row"><audio controls src={audio.main} /></div>
+        </div>
+      )}
       <div className="detail-card detail-meta-card">
         <div className="detail-meta">
           <span>등록 {word.registeredBy} · {fmtDate(word.registeredAt)}</span>
@@ -788,10 +1024,21 @@ function WordDetail({ word, defaultNickname, onAddComment, onSuggestEdit }) {
         </div>
         {!suggesting ? (
           <button className="btn-ghost" onClick={() => setSuggesting(true)}>수정 제안하기</button>
+        ) : kind === 'expression' ? (
+          <ExpressionForm
+            initial={word}
+            showNickname={false}
+            submitLabel="수정 제안 보내기"
+            onCancel={() => setSuggesting(false)}
+            onSubmit={(vals) => {
+              onSuggestEdit(vals);
+              setSuggesting(false);
+            }}
+          />
         ) : (
           <WordForm
             initial={word}
-            defaultNickname={defaultNickname}
+            showNickname={false}
             submitLabel="수정 제안 보내기"
             onCancel={() => setSuggesting(false)}
             onSubmit={(vals) => {
@@ -809,6 +1056,20 @@ function WordDetail({ word, defaultNickname, onAddComment, onSuggestEdit }) {
 }
 
 function WordRow({ word, onSelect }) {
+  const kind = itemKind(word);
+  if (kind === 'expression') {
+    return (
+      <div className="word-row">
+        <button className="word-row-head" onClick={onSelect} aria-label="표현 자세히 보기">
+          <div className="word-row-main expression-row-main">
+            <span className={`word-value ${word.language === 'chuja' ? 'chuja' : 'jeju'}`}>{word.text}</span>
+            <span className="word-arrow" aria-hidden="true"><ChevronRight size={18} /></span>
+          </div>
+          {word.meaning && <p className="word-meaning">{word.meaning}</p>}
+        </button>
+      </div>
+    );
+  }
   return (
     <div className="word-row">
       <button className="word-row-head" onClick={onSelect} aria-label={`${word.standard} 자세히 보기`}>
@@ -824,7 +1085,7 @@ function WordRow({ word, onSelect }) {
   );
 }
 
-// ==================== 단어 상세 페이지 ====================
+// ==================== 낱말/표현 상세 페이지 ====================
 function WordDetailPage({ word, defaultNickname, onAddComment, onSuggestEdit, onBack }) {
   if (!word) {
     return (
@@ -834,29 +1095,45 @@ function WordDetailPage({ word, defaultNickname, onAddComment, onSuggestEdit, on
       </section>
     );
   }
+  const kind = itemKind(word);
   return (
     <section className="view detail-view">
       <button className="btn-ghost back-btn" onClick={onBack}>← 목록으로</button>
       <div className="detail-card detail-header-card">
-        <p className="detail-legend">
-          <Chip type="standard">표준어</Chip>
-          <Chip type="jeju">제주어</Chip>
-          <Chip type="chuja">추자생활언어</Chip>
-        </p>
-        <p className="detail-word-line">
-          <span className="standard">{word.standard}</span>
-          <span className="sep">·</span>
-          <span className="jeju">{word.jeju}</span>
-          <span className="sep">·</span>
-          <span className="chuja">{word.chuja}</span>
-        </p>
-        {word.extraDialect && word.extraDialect.word && (
-          <p className="detail-extra-line">
-            <Chip type="extra">{word.extraDialect.regionLabel}</Chip>
-            {word.extraDialect.word}
-          </p>
+        {kind === 'expression' ? (
+          <>
+            <p className="detail-legend">
+              <Chip type="kind">표현</Chip>
+              <Chip type={word.language === 'chuja' ? 'chuja' : 'jeju'}>{word.language === 'chuja' ? '추자생활언어' : '제주어'}</Chip>
+            </p>
+            <p className="detail-word-line">
+              <span className={word.language === 'chuja' ? 'chuja' : 'jeju'}>{word.text}</span>
+            </p>
+            {word.meaning && <p className="detail-meaning">{word.meaning}</p>}
+          </>
+        ) : (
+          <>
+            <p className="detail-legend">
+              <Chip type="standard">표준어</Chip>
+              <Chip type="jeju">제주어</Chip>
+              <Chip type="chuja">추자생활언어</Chip>
+            </p>
+            <p className="detail-word-line">
+              <span className="standard">{word.standard}</span>
+              <span className="sep">·</span>
+              <span className="jeju">{word.jeju}</span>
+              <span className="sep">·</span>
+              <span className="chuja">{word.chuja}</span>
+            </p>
+            {word.extraDialect && word.extraDialect.word && (
+              <p className="detail-extra-line">
+                <Chip type="extra">{word.extraDialect.regionLabel}</Chip>
+                {word.extraDialect.word}
+              </p>
+            )}
+            {word.meaning && <p className="detail-meaning">{word.meaning}</p>}
+          </>
         )}
-        {word.meaning && <p className="detail-meaning">{word.meaning}</p>}
       </div>
       <WordDetail word={word} defaultNickname={defaultNickname} onAddComment={onAddComment} onSuggestEdit={onSuggestEdit} />
     </section>
@@ -869,6 +1146,7 @@ function Header({ view, setView }) {
     ['home', '홈', Home],
     ['dictionary', '사전', BookOpen],
     ['register', '단어 등록', PenSquare],
+    ['registerExpression', '표현 등록', MessageSquare],
     ['admin', '관리자', ShieldCheck],
   ];
   return (
@@ -890,7 +1168,7 @@ function Header({ view, setView }) {
 }
 
 // ==================== 홈 ====================
-function HomeView({ todayWord, approvedCount, onGoRegister, onViewToday, onShuffleToday }) {
+function HomeView({ todayWord, approvedCount, todayProverb, onShuffleProverb, onGoRegister, onViewToday, onShuffleToday }) {
   const ex = todayWord?.examples || {};
   return (
     <section className="view home-view">
@@ -926,9 +1204,29 @@ function HomeView({ todayWord, approvedCount, onGoRegister, onViewToday, onShuff
           <button className="btn-primary" onClick={onGoRegister}>첫 낱말 등록하기</button>
         </div>
       )}
+
+      <div className="eyebrow-row" style={{ marginTop: '1.75rem' }}>
+        <p className="eyebrow"><Sparkles size={16} aria-hidden="true" />오늘의 문장</p>
+        {todayProverb && (
+          <button type="button" className="shuffle-btn" onClick={onShuffleProverb} aria-label="다른 문장으로 바꾸기">
+            <Shuffle size={16} />
+          </button>
+        )}
+      </div>
+      {todayProverb ? (
+        <div className="today-card">
+          <p className="today-hero proverb">{todayProverb.jeju}</p>
+          <p className="today-sub">{todayProverb.meaning}</p>
+        </div>
+      ) : (
+        <div className="today-card">
+          <p>아직 등록된 문장이 없어요.</p>
+        </div>
+      )}
+
       <div className="intro">
         <p>
-          추자초 5학년 말바당 사전은 표준어, 제주어, 추자생활언어를 나란히 기록하고 나누는 사전이에요. 누구나 새로운 낱말을 등록할 수 있고,
+          추자초 5학년 말바당 사전은 표준어, 제주어, 추자생활언어를 나란히 기록하고 나누는 사전이에요. 누구나 새로운 낱말과 표현을 등록할 수 있고,
           관리자의 확인을 거쳐 사전에 실려요.
         </p>
         <p className="stat">지금까지 모인 낱말 {approvedCount}개</p>
@@ -938,19 +1236,56 @@ function HomeView({ todayWord, approvedCount, onGoRegister, onViewToday, onShuff
 }
 
 // ==================== 사전 ====================
-function DictionaryView({ words, term, setTerm, sortField, setSortField, sortDir, setSortDir, onSelectWord }) {
-  const approved = words.filter((w) => w.status === 'approved');
-  const filtered = filterWords(approved, term);
+function DictionaryView({
+  words,
+  term,
+  setTerm,
+  sortField,
+  setSortField,
+  sortDir,
+  setSortDir,
+  kindFilter,
+  setKindFilter,
+  page,
+  setPage,
+  onSelectWord,
+}) {
+  const approved = words.filter((w) => w.status === 'approved' && !w.hidden);
+  const kindFiltered = kindFilter === 'all' ? approved : approved.filter((w) => itemKind(w) === kindFilter);
+  const filtered = filterWords(kindFiltered, term);
   const sorted = sortWords(filtered, sortField, sortDir);
+  const { pageItems, totalPages, clampedPage } = paginate(sorted, page, PAGE_SIZE);
 
   return (
     <section className="view">
       <h2 className="view-title">사전</h2>
+      <div className="dict-controls-row" style={{ marginBottom: '0.75rem' }}>
+        <span className="dict-controls-label">보기</span>
+        {[
+          ['all', '전체 함께보기'],
+          ['word', '낱말만 모아보기'],
+          ['expression', '표현만 모아보기'],
+        ].map(([key, label]) => (
+          <button
+            key={key}
+            className={`sort-tab ${kindFilter === key ? 'active' : ''}`}
+            onClick={() => {
+              setKindFilter(key);
+              setPage(1);
+            }}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
       <input
         className="search-input"
-        placeholder="낱말 검색 (표준어, 제주어, 추자생활언어)"
+        placeholder="검색 (표준어, 제주어, 추자생활언어, 표현)"
         value={term}
-        onChange={(e) => setTerm(e.target.value)}
+        onChange={(e) => {
+          setTerm(e.target.value);
+          setPage(1);
+        }}
       />
       <div className="dict-controls">
         <div className="dict-controls-row">
@@ -961,7 +1296,14 @@ function DictionaryView({ words, term, setTerm, sortField, setSortField, sortDir
             ['chuja', '추자생활언어'],
             ['createdAt', '등록순서'],
           ].map(([key, label]) => (
-            <button key={key} className={`sort-tab ${sortField === key ? 'active' : ''}`} onClick={() => setSortField(key)}>
+            <button
+              key={key}
+              className={`sort-tab ${sortField === key ? 'active' : ''}`}
+              onClick={() => {
+                setSortField(key);
+                setPage(1);
+              }}
+            >
               {label}
             </button>
           ))}
@@ -972,14 +1314,21 @@ function DictionaryView({ words, term, setTerm, sortField, setSortField, sortDir
             ['asc', '오름차순'],
             ['desc', '내림차순'],
           ].map(([key, label]) => (
-            <button key={key} className={`sort-tab ${sortDir === key ? 'active' : ''}`} onClick={() => setSortDir(key)}>
+            <button
+              key={key}
+              className={`sort-tab ${sortDir === key ? 'active' : ''}`}
+              onClick={() => {
+                setSortDir(key);
+                setPage(1);
+              }}
+            >
               {label}
             </button>
           ))}
         </div>
       </div>
       <div className="word-list">
-        {sorted.length > 0 && (
+        {kindFilter === 'word' && pageItems.length > 0 && (
           <div className="word-list-header">
             <span>표준어</span>
             <span>제주어</span>
@@ -988,15 +1337,16 @@ function DictionaryView({ words, term, setTerm, sortField, setSortField, sortDir
           </div>
         )}
         {sorted.length === 0 && <p className="empty-state">조건에 맞는 낱말이 없어요.</p>}
-        {sorted.map((w) => (
+        {pageItems.map((w) => (
           <WordRow key={w.id} word={w} onSelect={() => onSelectWord(w.id)} />
         ))}
       </div>
+      <Pager page={clampedPage} totalPages={totalPages} onChange={setPage} />
     </section>
   );
 }
 
-// ==================== 등록 ====================
+// ==================== 낱말 등록 ====================
 function RegisterView({ defaultNickname, onSubmit }) {
   const [done, setDone] = useState(false);
 
@@ -1028,16 +1378,134 @@ function RegisterView({ defaultNickname, onSubmit }) {
   );
 }
 
+// ==================== 표현 등록 ====================
+function RegisterExpressionView({ defaultNickname, onSubmit }) {
+  const [done, setDone] = useState(false);
+
+  if (done) {
+    return (
+      <section className="view">
+        <h2 className="view-title">새 표현 등록</h2>
+        <div className="notice-card">
+          <p>등록 신청이 접수됐어요. 관리자 확인 후 사전에 실려요.</p>
+          <button className="btn-ghost" onClick={() => setDone(false)}>다른 표현 더 등록하기</button>
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <section className="view">
+      <h2 className="view-title">새 표현 등록</h2>
+      <p className="view-desc">제주어 또는 추자생활언어 중 하나를 선택해서 문장과 뜻을 입력해주세요. 등록한 내용은 관리자 확인 후 사전에 반영돼요.</p>
+      <ExpressionForm
+        defaultNickname={defaultNickname}
+        submitLabel="등록 신청하기"
+        onSubmit={(vals) => {
+          onSubmit(vals);
+          setDone(true);
+        }}
+      />
+    </section>
+  );
+}
+
+// ==================== 관리자: 오늘의 문장 관리 ====================
+function AdminProverbsView({ proverbs, onAdd, onUpdate, onDelete }) {
+  const [jeju, setJeju] = useState('');
+  const [meaning, setMeaning] = useState('');
+  const [error, setError] = useState('');
+  const [editingId, setEditingId] = useState(null);
+  const [editJeju, setEditJeju] = useState('');
+  const [editMeaning, setEditMeaning] = useState('');
+
+  function submitNew() {
+    if (!jeju.trim() || !meaning.trim()) {
+      setError('문장과 뜻을 모두 입력해주세요.');
+      return;
+    }
+    setError('');
+    onAdd({ jeju: jeju.trim(), meaning: meaning.trim() });
+    setJeju('');
+    setMeaning('');
+  }
+
+  function startEdit(p) {
+    setEditingId(p.id);
+    setEditJeju(p.jeju);
+    setEditMeaning(p.meaning);
+  }
+
+  function saveEdit(id) {
+    if (!editJeju.trim() || !editMeaning.trim()) return;
+    onUpdate(id, { jeju: editJeju.trim(), meaning: editMeaning.trim() });
+    setEditingId(null);
+  }
+
+  return (
+    <div className="pending-list">
+      <div className="notice-card">
+        <p className="form-subtitle" style={{ marginTop: 0 }}>새 문장 추가</p>
+        <TextArea label="문장 (제주어)" required value={jeju} onChange={setJeju} accent="jeju" />
+        <TextArea label="뜻" required value={meaning} onChange={setMeaning} />
+        {error && <p className="form-error">{error}</p>}
+        <div className="form-actions">
+          <button type="button" className="btn-primary" onClick={submitNew}>추가하기</button>
+        </div>
+      </div>
+      {proverbs.length === 0 && <p className="empty-state">등록된 문장이 없어요.</p>}
+      {proverbs.map((p) => (
+        <div key={p.id} className="pending-item">
+          {editingId === p.id ? (
+            <>
+              <TextArea label="문장 (제주어)" required value={editJeju} onChange={setEditJeju} accent="jeju" />
+              <TextArea label="뜻" required value={editMeaning} onChange={setEditMeaning} />
+              <div className="form-actions">
+                <button type="button" className="btn-primary" onClick={() => saveEdit(p.id)}>저장하기</button>
+                <button type="button" className="btn-ghost" onClick={() => setEditingId(null)}>취소</button>
+              </div>
+            </>
+          ) : (
+            <>
+              <p className="detail-word-line" style={{ fontSize: '1.1rem' }}>{p.jeju}</p>
+              <p className="muted">{p.meaning}</p>
+              <div className="form-actions">
+                <button type="button" className="btn-ghost" onClick={() => startEdit(p)}>수정</button>
+                <button type="button" className="btn-ghost danger" onClick={() => onDelete(p.id)}>삭제</button>
+              </div>
+            </>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ==================== 관리자 ====================
-function AdminView({ words, unlocked, onUnlock, onApprove, onReject, onAdminUpdate, onAdminDelete, onPrepareEdit }) {
+function AdminView({
+  words,
+  proverbs,
+  unlocked,
+  onUnlock,
+  onApprove,
+  onReject,
+  onAdminUpdate,
+  onAdminDelete,
+  onPrepareEdit,
+  onToggleHidden,
+  onAddProverb,
+  onUpdateProverb,
+  onDeleteProverb,
+}) {
   const [pin, setPin] = useState('');
   const [pinError, setPinError] = useState('');
   const [tab, setTab] = useState('pending');
   const [editingId, setEditingId] = useState(null);
   const [preparingEditId, setPreparingEditId] = useState(null);
   const [query, setQuery] = useState('');
-  const [adminNickname, setAdminNickname] = useState('');
   const [confirmDeleteId, setConfirmDeleteId] = useState(null);
+  const [adminKind, setAdminKind] = useState('all');
+  const [adminPage, setAdminPage] = useState(1);
 
   async function startEdit(id) {
     if (onPrepareEdit) {
@@ -1074,8 +1542,11 @@ function AdminView({ words, unlocked, onUnlock, onApprove, onReject, onAdminUpda
   }
 
   const pending = words.filter((w) => w.status === 'pending');
+  // 숨김 처리된 항목도 관리자에게는 계속 보여요. (일반 사전 화면에서만 숨겨져요.)
   const approved = words.filter((w) => w.status === 'approved');
-  const filteredApproved = filterWords(approved, query);
+  const kindFilteredApproved = adminKind === 'all' ? approved : approved.filter((w) => itemKind(w) === adminKind);
+  const filteredApproved = filterWords(kindFilteredApproved, query);
+  const { pageItems, totalPages, clampedPage } = paginate(filteredApproved, adminPage, PAGE_SIZE);
 
   return (
     <section className="view">
@@ -1085,7 +1556,10 @@ function AdminView({ words, unlocked, onUnlock, onApprove, onReject, onAdminUpda
           승인 대기 ({pending.length})
         </button>
         <button className={`sort-tab ${tab === 'all' ? 'active' : ''}`} onClick={() => setTab('all')}>
-          전체 단어 관리 ({approved.length})
+          전체 콘텐츠 관리 ({approved.length})
+        </button>
+        <button className={`sort-tab ${tab === 'proverbs' ? 'active' : ''}`} onClick={() => setTab('proverbs')}>
+          문장 관리 ({proverbs.length})
         </button>
         <button className={`sort-tab ${tab === 'stats' ? 'active' : ''}`} onClick={() => setTab('stats')}>
           통계
@@ -1095,94 +1569,168 @@ function AdminView({ words, unlocked, onUnlock, onApprove, onReject, onAdminUpda
       {tab === 'pending' && (
         <div className="pending-list">
           {pending.length === 0 && <p className="empty-state">대기 중인 항목이 없어요.</p>}
-          {pending.map((p) => (
-            <div key={p.id} className="pending-item">
-              <p className="pending-type">{p.type === 'edit' ? '수정 제안' : '새 낱말'}</p>
-              <div className="pending-fields">
-                <span><Chip type="standard">표준어</Chip>{p.standard}</span>
-                <span><Chip type="jeju">제주어</Chip>{p.jeju}</span>
-                <span><Chip type="chuja">추자생활언어</Chip>{p.chuja}</span>
-                {p.extraDialect && p.extraDialect.word && (
-                  <span><Chip type="extra">{p.extraDialect.regionLabel}</Chip>{p.extraDialect.word}</span>
-                )}
-              </div>
-              {p.imageUrl && (
-                <div className="pending-image-preview">
-                  <img
-                    src={p.imageUrl}
-                    alt="첨부 이미지 미리보기"
-                    onError={(e) => {
-                      e.target.style.display = 'none';
-                    }}
-                  />
+          {pending.map((p) => {
+            const kind = itemKind(p);
+            const typeLabel =
+              kind === 'expression'
+                ? p.type === 'edit' ? '표현 수정 제안' : '새 표현'
+                : p.type === 'edit' ? '낱말 수정 제안' : '새 낱말';
+            return (
+              <div key={p.id} className="pending-item">
+                <p className="pending-type">{typeLabel}</p>
+                <div className="pending-fields">
+                  {kind === 'expression' ? (
+                    <>
+                      <span><Chip type={p.language === 'chuja' ? 'chuja' : 'jeju'}>{p.language === 'chuja' ? '추자생활언어' : '제주어'}</Chip>{p.text}</span>
+                      {p.meaning && <span className="muted small">{p.meaning}</span>}
+                    </>
+                  ) : (
+                    <>
+                      <span><Chip type="standard">표준어</Chip>{p.standard}</span>
+                      <span><Chip type="jeju">제주어</Chip>{p.jeju}</span>
+                      <span><Chip type="chuja">추자생활언어</Chip>{p.chuja}</span>
+                      {p.extraDialect && p.extraDialect.word && (
+                        <span><Chip type="extra">{p.extraDialect.regionLabel}</Chip>{p.extraDialect.word}</span>
+                      )}
+                    </>
+                  )}
                 </div>
-              )}
-              <p className="muted small">신청자 {p.registeredBy} · {fmtDate(p.registeredAt)}</p>
-              <div className="form-actions">
-                <button className="btn-primary" onClick={() => onApprove(p.id)}>승인</button>
-                <button className="btn-ghost" onClick={() => onReject(p.id)}>반려</button>
+                {p.imageUrl && (
+                  <div className="pending-image-preview">
+                    <img
+                      src={p.imageUrl}
+                      alt="첨부 이미지 미리보기"
+                      onError={(e) => {
+                        e.target.style.display = 'none';
+                      }}
+                    />
+                  </div>
+                )}
+                <p className="muted small">신청자 {p.registeredBy} · {fmtDate(p.registeredAt)}</p>
+                <div className="form-actions">
+                  <button className="btn-primary" onClick={() => onApprove(p.id)}>승인</button>
+                  <button className="btn-ghost" onClick={() => onReject(p.id)}>반려</button>
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
       {tab === 'all' && (
         <div>
-          <input className="search-input" placeholder="낱말 검색" value={query} onChange={(e) => setQuery(e.target.value)} />
-          <div className="word-list">
-            {filteredApproved.map((w) => (
-              <div key={w.id} className="admin-word-item">
-                {editingId === w.id ? (
-                  <WordForm
-                    initial={w}
-                    defaultNickname={adminNickname}
-                    submitLabel="저장하기"
-                    onCancel={() => setEditingId(null)}
-                    onSubmit={(vals) => {
-                      setAdminNickname(vals.nickname);
-                      onAdminUpdate(w.id, vals);
-                      setEditingId(null);
-                    }}
-                  />
-                ) : (
-                  <>
-                    <div className="pending-fields">
-                      <span><Chip type="standard">표준어</Chip>{w.standard}</span>
-                      <span><Chip type="jeju">제주어</Chip>{w.jeju}</span>
-                      <span><Chip type="chuja">추자생활언어</Chip>{w.chuja}</span>
-                      {w.extraDialect && w.extraDialect.word && (
-                        <span><Chip type="extra">{w.extraDialect.regionLabel}</Chip>{w.extraDialect.word}</span>
-                      )}
-                    </div>
-                    <div className="form-actions">
-                      <button className="btn-ghost" onClick={() => startEdit(w.id)} disabled={preparingEditId === w.id}>
-                        {preparingEditId === w.id ? '불러오는 중...' : '수정'}
-                      </button>
-                      {confirmDeleteId === w.id ? (
-                        <span className="confirm-inline">
-                          정말 삭제할까요?
-                          <button
-                            className="btn-ghost danger"
-                            onClick={() => {
-                              onAdminDelete(w.id);
-                              setConfirmDeleteId(null);
-                            }}
-                          >
-                            삭제
-                          </button>
-                          <button className="btn-ghost" onClick={() => setConfirmDeleteId(null)}>취소</button>
-                        </span>
-                      ) : (
-                        <button className="btn-ghost danger" onClick={() => setConfirmDeleteId(w.id)}>삭제</button>
-                      )}
-                    </div>
-                  </>
-                )}
-              </div>
+          <div className="dict-controls-row" style={{ marginBottom: '0.6rem' }}>
+            {[
+              ['all', '전체'],
+              ['word', '낱말'],
+              ['expression', '표현'],
+            ].map(([key, label]) => (
+              <button
+                key={key}
+                className={`sort-tab ${adminKind === key ? 'active' : ''}`}
+                onClick={() => {
+                  setAdminKind(key);
+                  setAdminPage(1);
+                }}
+              >
+                {label}
+              </button>
             ))}
           </div>
+          <input
+            className="search-input"
+            placeholder="검색"
+            value={query}
+            onChange={(e) => {
+              setQuery(e.target.value);
+              setAdminPage(1);
+            }}
+          />
+          <div className="word-list">
+            {pageItems.map((w) => {
+              const kind = itemKind(w);
+              return (
+                <div key={w.id} className="admin-word-item">
+                  {editingId === w.id ? (
+                    kind === 'expression' ? (
+                      <ExpressionForm
+                        initial={w}
+                        showNickname={false}
+                        submitLabel="저장하기"
+                        onCancel={() => setEditingId(null)}
+                        onSubmit={(vals) => {
+                          onAdminUpdate(w.id, kind, vals);
+                          setEditingId(null);
+                        }}
+                      />
+                    ) : (
+                      <WordForm
+                        initial={w}
+                        showNickname={false}
+                        submitLabel="저장하기"
+                        onCancel={() => setEditingId(null)}
+                        onSubmit={(vals) => {
+                          onAdminUpdate(w.id, kind, vals);
+                          setEditingId(null);
+                        }}
+                      />
+                    )
+                  ) : (
+                    <>
+                      <div className="pending-fields">
+                        {w.hidden && <Chip type="kind">숨김</Chip>}
+                        {kind === 'expression' ? (
+                          <>
+                            <span><Chip type={w.language === 'chuja' ? 'chuja' : 'jeju'}>{w.language === 'chuja' ? '추자생활언어' : '제주어'}</Chip>{w.text}</span>
+                          </>
+                        ) : (
+                          <>
+                            <span><Chip type="standard">표준어</Chip>{w.standard}</span>
+                            <span><Chip type="jeju">제주어</Chip>{w.jeju}</span>
+                            <span><Chip type="chuja">추자생활언어</Chip>{w.chuja}</span>
+                            {w.extraDialect && w.extraDialect.word && (
+                              <span><Chip type="extra">{w.extraDialect.regionLabel}</Chip>{w.extraDialect.word}</span>
+                            )}
+                          </>
+                        )}
+                      </div>
+                      <div className="form-actions">
+                        <button className="btn-ghost" onClick={() => startEdit(w.id)} disabled={preparingEditId === w.id}>
+                          {preparingEditId === w.id ? '불러오는 중...' : '수정'}
+                        </button>
+                        <button className="btn-ghost" onClick={() => onToggleHidden(w.id)}>
+                          {w.hidden ? '숨김 해제' : '숨기기'}
+                        </button>
+                        {confirmDeleteId === w.id ? (
+                          <span className="confirm-inline">
+                            정말 삭제할까요?
+                            <button
+                              className="btn-ghost danger"
+                              onClick={() => {
+                                onAdminDelete(w.id);
+                                setConfirmDeleteId(null);
+                              }}
+                            >
+                              삭제
+                            </button>
+                            <button className="btn-ghost" onClick={() => setConfirmDeleteId(null)}>취소</button>
+                          </span>
+                        ) : (
+                          <button className="btn-ghost danger" onClick={() => setConfirmDeleteId(w.id)}>삭제</button>
+                        )}
+                      </div>
+                    </>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          <Pager page={clampedPage} totalPages={totalPages} onChange={setAdminPage} />
         </div>
+      )}
+
+      {tab === 'proverbs' && (
+        <AdminProverbsView proverbs={proverbs} onAdd={onAddProverb} onUpdate={onUpdateProverb} onDelete={onDeleteProverb} />
       )}
 
       {tab === 'stats' && <AdminStatsView words={approved} />}
@@ -1204,8 +1752,8 @@ function AdminStatsView({ words }) {
 
   return (
     <div className="stats-list">
-      <p className="view-desc">닉네임별로 사전에 실린 낱말 수를 확인할 수 있어요.</p>
-      {stats.length === 0 && <p className="empty-state">아직 사전에 실린 낱말이 없어요.</p>}
+      <p className="view-desc">닉네임별로 사전에 실린 낱말·표현 수를 확인할 수 있어요.</p>
+      {stats.length === 0 && <p className="empty-state">아직 사전에 실린 항목이 없어요.</p>}
       {stats.map((s, i) => (
         <div key={s.nickname} className="stats-row">
           <span className="stats-rank">{i + 1}</span>
@@ -1223,14 +1771,18 @@ function AdminStatsView({ words }) {
 // ==================== 메인 앱 ====================
 export default function App() {
   const [words, setWords] = useState([]);
+  const [proverbs, setProverbs] = useState([]);
   const [loaded, setLoaded] = useState(false);
   const [view, setView] = useState('home');
   const [nickname, setNickname] = useState('');
   const [todayWord, setTodayWord] = useState(null);
+  const [todayProverb, setTodayProverb] = useState(null);
   const [adminUnlocked, setAdminUnlocked] = useState(false);
   const [dictTerm, setDictTerm] = useState('');
   const [dictSortField, setDictSortField] = useState('standard');
   const [dictSortDir, setDictSortDir] = useState('asc');
+  const [dictKind, setDictKind] = useState('all');
+  const [dictPage, setDictPage] = useState(1);
   const [selectedWordId, setSelectedWordId] = useState(null);
   const [mediaMap, setMediaMap] = useState({}); // { [wordId]: { imageUrl, audio } }
   const [dbError, setDbError] = useState('');
@@ -1248,6 +1800,13 @@ export default function App() {
         setWords([]);
       }
       try {
+        const list = await dbGetProverbs();
+        setProverbs(list || []);
+      } catch (e) {
+        console.error('문장을 불러오지 못했어요', e);
+        setProverbs([]);
+      }
+      try {
         const savedNick = localStorage.getItem(NICK_KEY);
         if (savedNick) setNickname(savedNick);
       } catch (e) {
@@ -1259,14 +1818,20 @@ export default function App() {
 
   useEffect(() => {
     if (!loaded) return;
-    const approved = words.filter((w) => w.status === 'approved');
+    const approved = words.filter((w) => w.status === 'approved' && !w.hidden && itemKind(w) === 'word');
     getOrPickTodayWord(approved).then((picked) => {
       setTodayWord(picked);
       if (picked) ensureMedia(picked.id);
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loaded, words]);
 
-  // 이미지·음성은 낱말마다 따로 저장돼 있어서, 정말 필요할 때(상세 페이지를
+  useEffect(() => {
+    if (!loaded) return;
+    getOrPickTodayProverb(proverbs).then(setTodayProverb);
+  }, [loaded, proverbs]);
+
+  // 이미지·음성은 낱말/표현마다 따로 저장돼 있어서, 정말 필요할 때(상세 페이지를
   // 열거나 관리자 화면에서 미리보기가 필요할 때)만 그때그때 불러와요.
   async function ensureMedia(id) {
     if (!id || mediaMap[id]) return;
@@ -1295,53 +1860,64 @@ export default function App() {
     }
   }
 
-  async function handleRegisterNew(vals) {
+  async function handleRegisterItem(kind, vals) {
     rememberNickname(vals.nickname);
     const now = new Date().toISOString();
-    const newWord = {
+    const fields = CONTENT_FIELDS[kind] || CONTENT_FIELDS.word;
+    const content = {};
+    fields.forEach((f) => {
+      content[f] = vals[f];
+    });
+    const newItem = {
       id: uid(),
+      kind,
       type: 'new',
-      standard: vals.standard,
-      jeju: vals.jeju,
-      chuja: vals.chuja,
-      meaning: vals.meaning,
-      imageUrl: vals.imageUrl,
-      examples: vals.examples,
-      audio: vals.audio,
-      extraDialect: vals.extraDialect || null,
+      ...content,
+      imageUrl: vals.imageUrl || '',
+      audio: vals.audio || {},
       status: 'pending',
+      hidden: false,
       registeredBy: vals.nickname,
       registeredAt: now,
       lastEditedBy: '',
       lastEditedAt: '',
       comments: [],
     };
-    setWords((prev) => [...prev, newWord]);
+    setWords((prev) => [...prev, newItem]);
     try {
-      await dbSaveWord(newWord);
+      await dbSaveWord(newItem);
     } catch (e) {
       console.error('저장 실패', e);
-        setDbError(`저장하지 못했어요. Firebase 연결 또는 Firestore 보안 규칙을 확인해주세요. (에러: ${e.code || e.message || e})`);
+      setDbError(`저장하지 못했어요. Firebase 연결 또는 Firestore 보안 규칙을 확인해주세요. (에러: ${e.code || e.message || e})`);
     }
   }
 
-  async function handleSuggestEdit(targetId, vals) {
-    rememberNickname(vals.nickname);
+  function handleRegisterNew(vals) {
+    return handleRegisterItem('word', vals);
+  }
+
+  function handleRegisterExpression(vals) {
+    return handleRegisterItem('expression', vals);
+  }
+
+  async function handleSuggestEdit(targetId, kind, vals) {
     const now = new Date().toISOString();
+    const fields = CONTENT_FIELDS[kind] || CONTENT_FIELDS.word;
+    const content = {};
+    fields.forEach((f) => {
+      content[f] = vals[f];
+    });
+    // 수정 제안에서는 닉네임을 다시 묻지 않고, 이 기기에 저장된 닉네임을 그대로 써요.
     const editEntry = {
       id: uid(),
+      kind,
       type: 'edit',
       targetId,
-      standard: vals.standard,
-      jeju: vals.jeju,
-      chuja: vals.chuja,
-      meaning: vals.meaning,
-      imageUrl: vals.imageUrl,
-      examples: vals.examples,
-      audio: vals.audio,
-      extraDialect: vals.extraDialect || null,
+      ...content,
+      imageUrl: vals.imageUrl || '',
+      audio: vals.audio || {},
       status: 'pending',
-      registeredBy: vals.nickname,
+      registeredBy: nickname || '익명',
       registeredAt: now,
     };
     setWords((prev) => [...prev, editEntry]);
@@ -1349,7 +1925,7 @@ export default function App() {
       await dbSaveWord(editEntry);
     } catch (e) {
       console.error('저장 실패', e);
-        setDbError(`저장하지 못했어요. Firebase 연결 또는 Firestore 보안 규칙을 확인해주세요. (에러: ${e.code || e.message || e})`);
+      setDbError(`저장하지 못했어요. Firebase 연결 또는 Firestore 보안 규칙을 확인해주세요. (에러: ${e.code || e.message || e})`);
     }
   }
 
@@ -1387,25 +1963,26 @@ export default function App() {
     try {
       media = mediaMap[pendingId] || (await dbGetWordMedia(pendingId));
     } catch (e) {
-      media = { imageUrl: '', audio: { jeju: '', chuja: '' } };
+      media = { imageUrl: '', audio: {} };
     }
     if (item.type === 'edit') {
+      const kind = itemKind(item);
+      const fields = CONTENT_FIELDS[kind] || CONTENT_FIELDS.word;
       let updatedTarget = null;
       setWords((prev) =>
         prev
           .filter((w) => w.id !== pendingId)
           .map((w) => {
             if (w.id !== item.targetId) return w;
+            const contentUpdate = {};
+            fields.forEach((f) => {
+              contentUpdate[f] = item[f];
+            });
             updatedTarget = {
               ...w,
-              standard: item.standard,
-              jeju: item.jeju,
-              chuja: item.chuja,
-              meaning: item.meaning,
+              ...contentUpdate,
               imageUrl: media.imageUrl,
-              examples: item.examples,
               audio: media.audio,
-              extraDialect: item.extraDialect || null,
               lastEditedBy: item.registeredBy,
               lastEditedAt: now,
             };
@@ -1440,27 +2017,27 @@ export default function App() {
       await dbDeleteWord(pendingId);
     } catch (e) {
       console.error('저장 실패', e);
-        setDbError(`저장하지 못했어요. Firebase 연결 또는 Firestore 보안 규칙을 확인해주세요. (에러: ${e.code || e.message || e})`);
+      setDbError(`저장하지 못했어요. Firebase 연결 또는 Firestore 보안 규칙을 확인해주세요. (에러: ${e.code || e.message || e})`);
     }
   }
 
-  async function handleAdminUpdate(wordId, vals) {
+  async function handleAdminUpdate(wordId, kind, vals) {
     const now = new Date().toISOString();
+    const fields = CONTENT_FIELDS[kind] || CONTENT_FIELDS.word;
+    const content = {};
+    fields.forEach((f) => {
+      content[f] = vals[f];
+    });
     let updatedWord = null;
     setWords((prev) =>
       prev.map((w) => {
         if (w.id !== wordId) return w;
         updatedWord = {
           ...w,
-          standard: vals.standard,
-          jeju: vals.jeju,
-          chuja: vals.chuja,
-          meaning: vals.meaning,
-          imageUrl: vals.imageUrl,
-          examples: vals.examples,
-          audio: vals.audio,
-          extraDialect: vals.extraDialect || null,
-          lastEditedBy: `관리자(${vals.nickname})`,
+          ...content,
+          imageUrl: vals.imageUrl || '',
+          audio: vals.audio || {},
+          lastEditedBy: '관리자',
           lastEditedAt: now,
         };
         return updatedWord;
@@ -1482,7 +2059,67 @@ export default function App() {
       await dbDeleteWord(wordId);
     } catch (e) {
       console.error('저장 실패', e);
+      setDbError(`저장하지 못했어요. Firebase 연결 또는 Firestore 보안 규칙을 확인해주세요. (에러: ${e.code || e.message || e})`);
+    }
+  }
+
+  async function handleAdminToggleHidden(wordId) {
+    let updatedWord = null;
+    setWords((prev) =>
+      prev.map((w) => {
+        if (w.id !== wordId) return w;
+        updatedWord = { ...w, hidden: !w.hidden };
+        return updatedWord;
+      })
+    );
+    if (updatedWord) {
+      try {
+        await dbSaveWord(updatedWord);
+      } catch (e) {
+        console.error('저장 실패', e);
         setDbError(`저장하지 못했어요. Firebase 연결 또는 Firestore 보안 규칙을 확인해주세요. (에러: ${e.code || e.message || e})`);
+      }
+    }
+  }
+
+  async function handleAddProverb(vals) {
+    const now = new Date().toISOString();
+    const p = { id: uid(), jeju: vals.jeju, meaning: vals.meaning, createdAt: now };
+    setProverbs((prev) => [...prev, p]);
+    try {
+      await dbSaveProverb(p);
+    } catch (e) {
+      console.error('저장 실패', e);
+      setDbError(`문장을 저장하지 못했어요. (에러: ${e.code || e.message || e})`);
+    }
+  }
+
+  async function handleUpdateProverb(id, vals) {
+    let updated = null;
+    setProverbs((prev) =>
+      prev.map((p) => {
+        if (p.id !== id) return p;
+        updated = { ...p, jeju: vals.jeju, meaning: vals.meaning };
+        return updated;
+      })
+    );
+    if (updated) {
+      try {
+        await dbSaveProverb(updated);
+      } catch (e) {
+        console.error('저장 실패', e);
+        setDbError(`문장을 저장하지 못했어요. (에러: ${e.code || e.message || e})`);
+      }
+    }
+  }
+
+  async function handleDeleteProverb(id) {
+    setProverbs((prev) => prev.filter((p) => p.id !== id));
+    try {
+      await dbDeleteProverb(id);
+    } catch (e) {
+      console.error('저장 실패', e);
+      setDbError(`문장을 삭제하지 못했어요. (에러: ${e.code || e.message || e})`);
     }
   }
 
@@ -1495,7 +2132,7 @@ export default function App() {
   }
 
   async function handleShuffleToday() {
-    const approved = words.filter((w) => w.status === 'approved');
+    const approved = words.filter((w) => w.status === 'approved' && !w.hidden && itemKind(w) === 'word');
     if (approved.length === 0) return;
     const pool = approved.length > 1 && todayWord ? approved.filter((w) => w.id !== todayWord.id) : approved;
     const picked = pool[Math.floor(Math.random() * pool.length)];
@@ -1504,6 +2141,19 @@ export default function App() {
     const dateStr = new Date().toISOString().slice(0, 10);
     try {
       await dbSetToday({ date: dateStr, wordId: picked.id });
+    } catch (e) {
+      // 저장 실패해도 화면에는 반영된 상태 유지
+    }
+  }
+
+  async function handleShuffleProverb() {
+    if (proverbs.length === 0) return;
+    const pool = proverbs.length > 1 && todayProverb ? proverbs.filter((p) => p.id !== todayProverb.id) : proverbs;
+    const picked = pool[Math.floor(Math.random() * pool.length)];
+    setTodayProverb(picked);
+    const dateStr = new Date().toISOString().slice(0, 10);
+    try {
+      await dbSetTodayProverb({ date: dateStr, proverbId: picked.id });
     } catch (e) {
       // 저장 실패해도 화면에는 반영된 상태 유지
     }
@@ -1519,15 +2169,16 @@ export default function App() {
     setView('dictionary');
   }
 
-  // 관리자 화면(승인 대기 미리보기, 전체 단어 수정)은 이미지·음성이 필요할 수 있어서
+  // 관리자 화면(승인 대기 미리보기, 전체 콘텐츠 수정)은 이미지·음성이 필요할 수 있어서
   // 관리자 패널을 열면 현재 목록에 필요한 미디어를 미리 불러와둬요.
   useEffect(() => {
     if (view === 'admin' && adminUnlocked) {
       ensureMediaForList(words);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view, adminUnlocked, words]);
 
-  const approvedCount = words.filter((w) => w.status === 'approved').length;
+  const approvedCount = words.filter((w) => w.status === 'approved' && !w.hidden && itemKind(w) === 'word').length;
   const selectedWord = withMedia(words.find((w) => w.id === selectedWordId) || null);
   const todayWordDisplay = withMedia(todayWord);
   const wordsWithMedia = words.map(withMedia);
@@ -1551,6 +2202,8 @@ export default function App() {
               <HomeView
                 todayWord={todayWordDisplay}
                 approvedCount={approvedCount}
+                todayProverb={todayProverb}
+                onShuffleProverb={handleShuffleProverb}
                 onGoRegister={() => setView('register')}
                 onViewToday={() => todayWord && handleSelectWord(todayWord.id)}
                 onShuffleToday={handleShuffleToday}
@@ -1565,6 +2218,10 @@ export default function App() {
                 setSortField={setDictSortField}
                 sortDir={dictSortDir}
                 setSortDir={setDictSortDir}
+                kindFilter={dictKind}
+                setKindFilter={setDictKind}
+                page={dictPage}
+                setPage={setDictPage}
                 onSelectWord={handleSelectWord}
               />
             )}
@@ -1573,14 +2230,18 @@ export default function App() {
                 word={selectedWord}
                 defaultNickname={nickname}
                 onAddComment={handleAddComment}
-                onSuggestEdit={(vals) => handleSuggestEdit(selectedWordId, vals)}
+                onSuggestEdit={(vals) => handleSuggestEdit(selectedWordId, itemKind(selectedWord), vals)}
                 onBack={handleBackToDictionary}
               />
             )}
             {view === 'register' && <RegisterView defaultNickname={nickname} onSubmit={handleRegisterNew} />}
+            {view === 'registerExpression' && (
+              <RegisterExpressionView defaultNickname={nickname} onSubmit={handleRegisterExpression} />
+            )}
             {view === 'admin' && (
               <AdminView
                 words={wordsWithMedia}
+                proverbs={proverbs}
                 unlocked={adminUnlocked}
                 onUnlock={handleUnlock}
                 onApprove={handleApprove}
@@ -1588,6 +2249,10 @@ export default function App() {
                 onAdminUpdate={handleAdminUpdate}
                 onAdminDelete={handleAdminDelete}
                 onPrepareEdit={ensureMedia}
+                onToggleHidden={handleAdminToggleHidden}
+                onAddProverb={handleAddProverb}
+                onUpdateProverb={handleUpdateProverb}
+                onDeleteProverb={handleDeleteProverb}
               />
             )}
           </>

@@ -45,6 +45,8 @@ const WORDS_COLLECTION = 'words';
 const MEDIA_COLLECTION = 'wordMedia';
 // 오늘의 낱말처럼 앱 전체에서 하나만 있는 값은 meta 컬렉션에 저장해요.
 const META_COLLECTION = 'meta';
+// 제주어 속담은 승인 절차 없이 관리자가 바로 추가·수정·삭제하는 별도 컬렉션이에요.
+const PROVERB_COLLECTION = 'proverbs';
 
 const EMPTY_MEDIA = { imageUrl: '', audio: { jeju: '', chuja: '' } };
 
@@ -83,4 +85,27 @@ export async function dbGetToday() {
 
 export async function dbSetToday(value) {
   await setDoc(doc(db, META_COLLECTION, 'today'), value);
+}
+
+// ==================== 제주어 속담 ====================
+export async function dbGetProverbs() {
+  const snap = await getDocs(collection(db, PROVERB_COLLECTION));
+  return snap.docs.map((d) => d.data());
+}
+
+export async function dbSaveProverb(proverb) {
+  await setDoc(doc(db, PROVERB_COLLECTION, proverb.id), proverb);
+}
+
+export async function dbDeleteProverb(id) {
+  await deleteDoc(doc(db, PROVERB_COLLECTION, id));
+}
+
+export async function dbGetTodayProverb() {
+  const snap = await getDoc(doc(db, META_COLLECTION, 'todayProverb'));
+  return snap.exists() ? snap.data() : null;
+}
+
+export async function dbSetTodayProverb(value) {
+  await setDoc(doc(db, META_COLLECTION, 'todayProverb'), value);
 }
