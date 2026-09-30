@@ -398,6 +398,7 @@ function GlobalStyle() {
       .comment-item { background: var(--white); border: 2px solid var(--line); border-radius: 14px; padding: 0.6rem 0.75rem; }
       .comment-meta { display: flex; justify-content: space-between; font-size: 0.78rem; color: var(--ink-500); margin-bottom: 0.2rem; }
       .comment-item p { margin: 0; }
+      .comment-delete { margin-top: 0.5rem; padding: 0.25rem 0.7rem; font-size: 0.78rem; }
       .comment-empty { color: var(--ink-500); font-size: 0.85rem; }
       .comment-form { display: flex; flex-direction: column; gap: 0.5rem; }
       .notice-card { border: 2px solid var(--line); border-radius: 18px; padding: 1.25rem; background: var(--white); display: flex; flex-direction: column; gap: 0.75rem; }
@@ -938,8 +939,9 @@ function ExpressionForm({ initial, defaultNickname, showNickname = true, submitL
 }
 
 // ==================== 댓글 ====================
-function CommentSection({ comments, defaultNickname, onAdd }) {
-  const [nickname, setNickname] = useState(defaultNickname || '');
+function CommentSection({ comments, isAdmin, onAdd, onDelete }) {
+  // 닉네임은 기억해두지 않고 매번 새로 입력하게 해요.
+  const [nickname, setNickname] = useState('');
   const [text, setText] = useState('');
 
   function submit() {
@@ -959,6 +961,9 @@ function CommentSection({ comments, defaultNickname, onAdd }) {
               <span>{fmtDate(c.date)}</span>
             </div>
             <p>{c.text}</p>
+            {isAdmin && (
+              <button type="button" className="btn-ghost danger comment-delete" onClick={() => onDelete(c.id)}>삭제</button>
+            )}
           </li>
         ))}
         {comments.length === 0 && <li className="comment-empty">아직 댓글이 없어요. 첫 댓글을 남겨보세요.</li>}
@@ -973,7 +978,7 @@ function CommentSection({ comments, defaultNickname, onAdd }) {
 }
 
 // ==================== 낱말/표현 상세 ====================
-function WordDetail({ word, defaultNickname, onAddComment, onSuggestEdit }) {
+function WordDetail({ word, isAdmin, onAddComment, onDeleteComment, onSuggestEdit }) {
   const [suggesting, setSuggesting] = useState(false);
   const kind = itemKind(word);
   const ex = word.examples || {};
@@ -1049,7 +1054,12 @@ function WordDetail({ word, defaultNickname, onAddComment, onSuggestEdit }) {
         )}
       </div>
       <div className="detail-card">
-        <CommentSection comments={word.comments || []} defaultNickname={defaultNickname} onAdd={(c) => onAddComment(word.id, c)} />
+        <CommentSection
+          comments={word.comments || []}
+          isAdmin={isAdmin}
+          onAdd={(c) => onAddComment(word.id, c)}
+          onDelete={(commentId) => onDeleteComment(word.id, commentId)}
+        />
       </div>
     </div>
   );
@@ -1086,7 +1096,7 @@ function WordRow({ word, onSelect }) {
 }
 
 // ==================== 낱말/표현 상세 페이지 ====================
-function WordDetailPage({ word, defaultNickname, onAddComment, onSuggestEdit, onBack }) {
+function WordDetailPage({ word, isAdmin, onAddComment, onDeleteComment, onSuggestEdit, onBack }) {
   if (!word) {
     return (
       <section className="view">
@@ -1135,7 +1145,13 @@ function WordDetailPage({ word, defaultNickname, onAddComment, onSuggestEdit, on
           </>
         )}
       </div>
-      <WordDetail word={word} defaultNickname={defaultNickname} onAddComment={onAddComment} onSuggestEdit={onSuggestEdit} />
+      <WordDetail
+        word={word}
+        isAdmin={isAdmin}
+        onAddComment={onAddComment}
+        onDeleteComment={onDeleteComment}
+        onSuggestEdit={onSuggestEdit}
+      />
     </section>
   );
 }
@@ -1953,6 +1969,26 @@ export default function App() {
     }
   }
 
+  // 관리자만 사용하는 기능이에요. (WordDetailPage에서 isAdmin일 때만 삭제 버튼이 보여요.)
+  async function handleDeleteComment(wordId, commentId) {
+    let updatedWord = null;
+    setWords((prev) =>
+      prev.map((w) => {
+        if (w.id !== wordId) return w;
+        updatedWord = { ...w, comments: (w.comments || []).filter((c) => c.id !== commentId) };
+        return updatedWord;
+      })
+    );
+    if (updatedWord) {
+      try {
+        await dbSaveWord(updatedWord);
+      } catch (e) {
+        console.error('저장 실패', e);
+        setDbError(`저장하지 못했어요. Firebase 연결 또는 Firestore 보안 규칙을 확인해주세요. (에러: ${e.code || e.message || e})`);
+      }
+    }
+  }
+
   async function handleApprove(pendingId) {
     const item = words.find((w) => w.id === pendingId);
     if (!item) return;
@@ -2228,8 +2264,9 @@ export default function App() {
             {view === 'detail' && (
               <WordDetailPage
                 word={selectedWord}
-                defaultNickname={nickname}
+                isAdmin={adminUnlocked}
                 onAddComment={handleAddComment}
+                onDeleteComment={handleDeleteComment}
                 onSuggestEdit={(vals) => handleSuggestEdit(selectedWordId, itemKind(selectedWord), vals)}
                 onBack={handleBackToDictionary}
               />
