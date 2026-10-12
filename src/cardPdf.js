@@ -16,22 +16,26 @@ const CARD_W = Math.round(CARD_W_MM * PX_PER_MM); // 756
 const CARD_H = Math.round(CARD_H_MM * PX_PER_MM); // 1051
 
 const FONT_BODY = '"Noto Sans KR", "Noto Sans CJK KR", "Malgun Gothic", "Apple SD Gothic Neo", sans-serif';
-const FONT_TITLE = `"Jua", ${FONT_BODY}`;
+const FONT_TITLE = FONT_BODY; // 낱말·큰 글씨는 굵은 Noto Sans KR(900)로 통통하게 써요. (머리띠 제목만 Jua)
+const FONT_BRAND = `"Jua", ${FONT_BODY}`;
 
 const COLOR = {
-  paper: '#FFF7E8',
+  paper: '#E8F7E4', // 카드 바탕(연한 초록)
   white: '#FFFFFF',
-  ink: '#33304D',
-  inkSoft: '#7A7396',
-  line: '#FFE3B0',
-  accent: '#5FA044',
-  accentDark: '#457A30',
-  standard: '#4B3F72',
-  jeju: '#E36A1A',
+  ink: '#2E3B2F',
+  inkSoft: '#6B7F6C',
+  line: '#A9DDA5', // 점선·테두리(연초록)
+  accent: '#3FA34D', // 머리띠·테두리 초록
+  accentDark: '#2E7D3A',
+  imgTop: '#D4F3CE',
+  imgBottom: '#9ADB93',
+  standard: '#2C4A8A',
+  standardChip: '#5B6CC4',
+  jeju: '#E8731A',
   jejuChip: '#FF8A3D',
-  chuja: '#128F85',
-  chujaChip: '#22C3B6',
-  cut: '#B8B0A0',
+  chuja: '#0F7F74',
+  chujaChip: '#14A89A',
+  bubble: 'rgba(255,255,255,0.65)',
 };
 
 // ---------- A4 배치 계산 ----------
@@ -120,7 +124,7 @@ function drawChip(ctx, x, y, w, h, label, bg, fontSize, dry) {
     roundRectPath(ctx, x, y, w, h, h / 2);
     ctx.fill();
     ctx.fillStyle = COLOR.white;
-    ctx.font = `700 ${fontSize}px ${FONT_BODY}`;
+    ctx.font = `900 ${fontSize}px ${FONT_BODY}`;
     ctx.textBaseline = 'middle';
     ctx.textAlign = 'center';
     ctx.fillText(label, x + w / 2, y + h / 2 + 1);
@@ -130,110 +134,113 @@ function drawChip(ctx, x, y, w, h, label, bg, fontSize, dry) {
 
 function drawImageBox(ctx, img, x, y, w, h, dry) {
   if (dry) return;
-  ctx.fillStyle = COLOR.white;
-  roundRectPath(ctx, x, y, w, h, 22);
+  const grad = ctx.createLinearGradient(0, y, 0, y + h);
+  grad.addColorStop(0, COLOR.imgTop);
+  grad.addColorStop(1, COLOR.imgBottom);
+  ctx.fillStyle = grad;
+  roundRectPath(ctx, x, y, w, h, 28);
   ctx.fill();
-  ctx.save();
-  roundRectPath(ctx, x, y, w, h, 22);
-  ctx.clip();
-  // 사진이 잘리지 않도록 비율을 유지해서 상자 안에 들어오게(contain) 그려요.
-  const ratio = Math.min(w / img.width, h / img.height);
-  const dw = img.width * ratio;
-  const dh = img.height * ratio;
-  ctx.drawImage(img, x + (w - dw) / 2, y + (h - dh) / 2, dw, dh);
-  ctx.restore();
-  ctx.strokeStyle = COLOR.line;
-  ctx.lineWidth = 3;
-  roundRectPath(ctx, x, y, w, h, 22);
+  if (img) {
+    ctx.save();
+    roundRectPath(ctx, x, y, w, h, 28);
+    ctx.clip();
+    // 사진이 잘리지 않도록 비율을 유지해서 상자 안에 들어오게(contain) 그려요.
+    const ratio = Math.min(w / img.width, h / img.height);
+    const dw = img.width * ratio;
+    const dh = img.height * ratio;
+    ctx.drawImage(img, x + (w - dw) / 2, y + (h - dh) / 2, dw, dh);
+    ctx.restore();
+  }
+  ctx.strokeStyle = COLOR.white;
+  ctx.lineWidth = 6;
+  roundRectPath(ctx, x, y, w, h, 28);
   ctx.stroke();
 }
 
+// 점선 테두리 말풍선 상자
+function drawDashedBox(ctx, x, y, w, h, dry) {
+  if (dry) return;
+  ctx.fillStyle = COLOR.white;
+  roundRectPath(ctx, x, y, w, h, 24);
+  ctx.fill();
+  ctx.save();
+  ctx.setLineDash([14, 10]);
+  ctx.strokeStyle = COLOR.line;
+  ctx.lineWidth = 4;
+  roundRectPath(ctx, x, y, w, h, 24);
+  ctx.stroke();
+  ctx.restore();
+}
+
 // ---------- 카드 한 장 그리기 ----------
+const HEADER_H = 120; // 물결 머리띠 높이
+const FRAME = 14; // 바깥 테두리 두께
+
 // dry=true 이면 실제로 그리지 않고 "끝나는 y 위치"만 계산해요. (내용이 많으면 글씨를 줄이려고)
-function drawCardBody(ctx, item, img, scale, dry) {
-  const PAD = 40;
+function drawCardBody(ctx, item, img, scale, dry, imgH) {
+  const PAD = 44;
   const innerW = CARD_W - PAD * 2;
   const kind = item.kind || 'word';
-  let y = 88 + 30;
+  let y = HEADER_H + 40;
 
-  if (img) {
-    const boxH = Math.round(290 * scale);
-    drawImageBox(ctx, img, PAD, y, innerW, boxH, dry);
-    y += boxH + Math.round(26 * scale);
-  }
+  // 이미지가 없어도 이미지 칸은 항상 남겨둬요. (칸의 높이는 renderCard가 카드에 꼭 맞게 정해줘요.)
+  drawImageBox(ctx, img, PAD, y, innerW, imgH, dry);
+  y += imgH + Math.round(28 * scale);
 
-  const drawDivider = () => {
-    if (!dry) {
-      ctx.strokeStyle = COLOR.line;
-      ctx.lineWidth = 3;
-      ctx.beginPath();
-      ctx.moveTo(PAD, y);
-      ctx.lineTo(CARD_W - PAD, y);
-      ctx.stroke();
-    }
-    y += Math.round(22 * scale);
+  // 글 상자: 줄바꿈한 글을 점선 상자 안에 그려요. (라벨 칩 + 글)
+  const drawTextBox = (label, chipBg, chipW, text, fontSize, color, maxLines, weight) => {
+    const padIn = 18;
+    const chipH = Math.round(36 * scale);
+    ctx.font = `${weight} ${fontSize}px ${FONT_BODY}`;
+    const lines = wrapLines(ctx, text, innerW - padIn * 2, maxLines);
+    const lineH = Math.round(fontSize * 1.42);
+    const boxH = padIn + chipH + Math.round(10 * scale) + lines.length * lineH + padIn - 4;
+    drawDashedBox(ctx, PAD, y, innerW, boxH, dry);
+    drawChip(ctx, PAD + padIn, y + padIn, chipW, chipH, label, chipBg, Math.round(21 * scale), dry);
+    let ty = y + padIn + chipH + Math.round(10 * scale);
+    lines.forEach((ln) => {
+      if (!dry) {
+        ctx.font = `${weight} ${fontSize}px ${FONT_BODY}`;
+        ctx.fillStyle = color;
+        ctx.textBaseline = 'top';
+        ctx.textAlign = 'left';
+        ctx.fillText(ln, PAD + padIn, ty);
+      }
+      ty += lineH;
+    });
+    y += boxH + Math.round(16 * scale);
   };
 
   if (kind === 'expression') {
     const isChuja = item.language === 'chuja';
     const chipBg = isChuja ? COLOR.chujaChip : COLOR.jejuChip;
     const textColor = isChuja ? COLOR.chuja : COLOR.jeju;
-    const chipH = Math.round(42 * scale);
-    drawChip(ctx, PAD, y, isChuja ? 190 : 110, chipH, isChuja ? '추자생활언어' : '제주어', chipBg, Math.round(24 * scale), dry);
-    y += chipH + Math.round(18 * scale);
-
-    const size = Math.round(54 * scale);
-    ctx.font = `400 ${size}px ${FONT_TITLE}`;
-    const lines = wrapLines(ctx, item.text, innerW, 5);
-    const lineH = Math.round(size * 1.3);
-    lines.forEach((ln) => {
-      if (!dry) {
-        ctx.fillStyle = textColor;
-        ctx.textBaseline = 'top';
-        ctx.fillText(ln, PAD, y);
-      }
-      y += lineH;
-    });
-    y += Math.round(10 * scale);
-
+    drawTextBox(isChuja ? '추자생활언어' : '제주어', chipBg, isChuja ? 180 : 110, item.text, Math.round(52 * scale), textColor, 5, 900);
     if (item.meaning) {
-      drawDivider();
-      const mChipH = Math.round(36 * scale);
-      drawChip(ctx, PAD, y, 70, mChipH, '뜻', COLOR.standard, Math.round(24 * scale), dry);
-      y += mChipH + Math.round(12 * scale);
-      const mSize = Math.round(36 * scale);
-      ctx.font = `500 ${mSize}px ${FONT_BODY}`;
-      const mLines = wrapLines(ctx, item.meaning, innerW, 6);
-      mLines.forEach((ln) => {
-        if (!dry) {
-          ctx.fillStyle = COLOR.ink;
-          ctx.textBaseline = 'top';
-          ctx.fillText(ln, PAD, y);
-        }
-        y += Math.round(mSize * 1.45);
-      });
+      drawTextBox('뜻', COLOR.standardChip, 70, item.meaning, Math.round(34 * scale), COLOR.ink, 6, 700);
     }
     return y;
   }
 
   // ----- 낱말 카드 -----
   const rows = [
-    ['표준어', item.standard, COLOR.standard, COLOR.standard],
+    ['표준어', item.standard, COLOR.standardChip, COLOR.standard],
     ['제주어', item.jeju, COLOR.jejuChip, COLOR.jeju],
     ['추자생활언어', item.chuja, COLOR.chujaChip, COLOR.chuja],
   ];
   const chipW = 178;
   const textX = PAD + chipW + 22;
-  const rowH = Math.round(88 * scale);
+  const rowH = Math.round(92 * scale);
   rows.forEach(([label, value, chipBg, textColor]) => {
     const chipH = Math.round(40 * scale);
     drawChip(ctx, PAD, y + Math.round((rowH - chipH) / 2) - 4, chipW, chipH, label, chipBg, Math.round(23 * scale), dry);
     const text = String(value || '');
-    const size = fitFontSize(ctx, text, FONT_TITLE, 400, Math.round(58 * scale), 26, CARD_W - PAD - textX);
+    const size = fitFontSize(ctx, text, FONT_TITLE, 900, Math.round(60 * scale), 26, CARD_W - PAD - textX);
     if (!dry) {
-      ctx.font = `400 ${size}px ${FONT_TITLE}`;
+      ctx.font = `900 ${size}px ${FONT_TITLE}`;
       ctx.fillStyle = textColor;
       ctx.textBaseline = 'middle';
+      ctx.textAlign = 'left';
       ctx.fillText(text, textX, y + rowH / 2 - 4);
     }
     y += rowH;
@@ -244,30 +251,12 @@ function drawCardBody(ctx, item, img, scale, dry) {
     ['제주어 예문', ex.jeju, COLOR.jejuChip],
     ['추자생활언어 예문', ex.chuja, COLOR.chujaChip],
   ].filter(([, text]) => text && String(text).trim());
-
-  if (exRows.length > 0) {
-    y += Math.round(6 * scale);
-    drawDivider();
-    const exSize = Math.round(34 * scale);
-    exRows.forEach(([label, text, chipBg]) => {
-      const chipH = Math.round(34 * scale);
-      ctx.font = `700 ${Math.round(23 * scale)}px ${FONT_BODY}`;
-      const labelW = Math.round(ctx.measureText(label).width + 36);
-      drawChip(ctx, PAD, y, labelW, chipH, label, chipBg, Math.round(21 * scale), dry);
-      y += chipH + Math.round(8 * scale);
-      ctx.font = `500 ${exSize}px ${FONT_BODY}`;
-      const lines = wrapLines(ctx, text, innerW, 4);
-      lines.forEach((ln) => {
-        if (!dry) {
-          ctx.fillStyle = COLOR.ink;
-          ctx.textBaseline = 'top';
-          ctx.fillText(ln, PAD, y);
-        }
-        y += Math.round(exSize * 1.42);
-      });
-      y += Math.round(16 * scale);
-    });
-  }
+  if (exRows.length > 0) y += Math.round(10 * scale);
+  exRows.forEach(([label, text, chipBg]) => {
+    ctx.font = `700 ${Math.round(21 * scale)}px ${FONT_BODY}`;
+    const labelW = Math.round(ctx.measureText(label).width + 40);
+    drawTextBox(label, chipBg, labelW, text, Math.round(32 * scale), COLOR.ink, 4, 700);
+  });
   return y;
 }
 
@@ -276,39 +265,49 @@ function renderCard(canvas, item, img) {
   canvas.width = CARD_W;
   canvas.height = CARD_H;
 
-  // 내용이 많으면 글씨를 조금씩 줄여서 카드 안에 다 들어가게 해요.
-  const limit = CARD_H - 36;
-  const scales = [1, 0.93, 0.86, 0.79, 0.72, 0.65, 0.58];
+  // 카드 높이에 꼭 맞게: 글(낱말·예문)이 차지하는 높이를 빼고 남는 만큼을 이미지 칸으로 써요.
+  // 글이 많으면 글씨를 줄이고, 적으면 글씨를 조금 키워서 위·아래 여백이 거의 없게 맞춰요.
+  const limit = CARD_H - FRAME - 30;
+  const MIN_IMG = 230;
+  const scales = [1.12, 1.06, 1, 0.93, 0.86, 0.79, 0.72, 0.65, 0.58, 0.52];
   let chosen = scales[scales.length - 1];
+  let imgH = 120;
   for (const s of scales) {
-    if (drawCardBody(ctx, item, img, s, true) <= limit) {
+    const room = limit - drawCardBody(ctx, item, null, s, true, 0);
+    if (room >= MIN_IMG) {
       chosen = s;
+      imgH = Math.floor(room);
       break;
     }
+    if (s === scales[scales.length - 1]) imgH = Math.max(100, Math.floor(room));
   }
 
   // 바탕
   ctx.fillStyle = COLOR.paper;
   ctx.fillRect(0, 0, CARD_W, CARD_H);
-  // 머리말 띠
+
+  drawCardBody(ctx, item, img, chosen, false, imgH);
+
+  // 물결 머리띠 (아래쪽이 물결 모양)
   ctx.fillStyle = COLOR.accent;
-  ctx.fillRect(0, 0, CARD_W, 88);
+  ctx.fillRect(0, 0, CARD_W, HEADER_H - 14);
+  const r = 22;
+  for (let cx = r; cx < CARD_W + r; cx += r * 2) {
+    ctx.beginPath();
+    ctx.arc(cx, HEADER_H - 14, r, 0, Math.PI);
+    ctx.fill();
+  }
   ctx.fillStyle = COLOR.white;
-  ctx.font = `400 34px ${FONT_TITLE}`;
+  ctx.font = `400 36px ${FONT_BRAND}`;
   ctx.textBaseline = 'middle';
   ctx.textAlign = 'center';
-  ctx.fillText('추자초 5학년 말바당 사전', CARD_W / 2, 46);
+  ctx.fillText('추자초 5학년 말바당 사전', CARD_W / 2, 56);
   ctx.textAlign = 'left';
 
-  drawCardBody(ctx, item, img, chosen, false);
-
-  // 아래쪽 장식 선
-  ctx.fillStyle = COLOR.accent;
-  ctx.fillRect(0, CARD_H - 14, CARD_W, 14);
-  // 자르는 선(카드 가장자리)
-  ctx.strokeStyle = COLOR.cut;
-  ctx.lineWidth = 3;
-  ctx.strokeRect(1.5, 1.5, CARD_W - 3, CARD_H - 3);
+  // 바깥 테두리 (카드 자르는 선 역할도 해요)
+  ctx.strokeStyle = COLOR.accent;
+  ctx.lineWidth = FRAME * 2;
+  ctx.strokeRect(0, 0, CARD_W, CARD_H);
 }
 
 // ---------- 글꼴/이미지 준비 ----------
@@ -330,6 +329,7 @@ async function ensureFonts(items) {
         document.fonts.load('400 28px "Noto Sans KR"', sample),
         document.fonts.load('500 28px "Noto Sans KR"', sample),
         document.fonts.load('700 22px "Noto Sans KR"', sample),
+        document.fonts.load('900 22px "Noto Sans KR"', sample),
       ]),
       5000
     );

@@ -174,7 +174,7 @@ async function getOrPickTodayProverb(proverbs) {
 function GlobalStyle() {
   return (
     <style>{`
-      @import url('https://fonts.googleapis.com/css2?family=Jua&family=Noto+Sans+KR:wght@400;500;700&display=swap');
+      @import url('https://fonts.googleapis.com/css2?family=Jua&family=Noto+Sans+KR:wght@400;500;700;900&display=swap');
 
       .jejumal-app {
         --basalt-900: #4B3F72;
