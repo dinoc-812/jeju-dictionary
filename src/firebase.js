@@ -47,6 +47,8 @@ const MEDIA_COLLECTION = 'wordMedia';
 const META_COLLECTION = 'meta';
 // 제주어 속담은 승인 절차 없이 관리자가 바로 추가·수정·삭제하는 별도 컬렉션이에요.
 const PROVERB_COLLECTION = 'proverbs';
+// 오늘의 퀴즈 참여 기록(하루에 한 번만 풀 수 있도록 확인하는 용도)
+const QUIZ_ATTEMPT_COLLECTION = 'quizAttempts';
 
 const EMPTY_MEDIA = { imageUrl: '', audio: { jeju: '', chuja: '' } };
 
@@ -108,4 +110,25 @@ export async function dbGetTodayProverb() {
 
 export async function dbSetTodayProverb(value) {
   await setDoc(doc(db, META_COLLECTION, 'todayProverb'), value);
+}
+
+// ==================== 오늘의 퀴즈 ====================
+// 오늘의 문제는 하루 동안 모두에게 똑같아야 해서, 처음 접속한 사람이 만든 문제를
+// meta/quizToday 문서에 저장해두고 다른 사람들은 그걸 그대로 불러와요.
+export async function dbGetQuizToday() {
+  const snap = await getDoc(doc(db, META_COLLECTION, 'quizToday'));
+  return snap.exists() ? snap.data() : null;
+}
+
+export async function dbSetQuizToday(value) {
+  await setDoc(doc(db, META_COLLECTION, 'quizToday'), value);
+}
+
+export async function dbGetQuizAttempt(id) {
+  const snap = await getDoc(doc(db, QUIZ_ATTEMPT_COLLECTION, id));
+  return snap.exists() ? snap.data() : null;
+}
+
+export async function dbSaveQuizAttempt(id, value) {
+  await setDoc(doc(db, QUIZ_ATTEMPT_COLLECTION, id), value);
 }

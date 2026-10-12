@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Home, BookOpen, PenSquare, ShieldCheck, Sparkles, ChevronRight, Shuffle, Mic, Square, MessageSquare } from 'lucide-react';
+import { Home, BookOpen, PenSquare, ShieldCheck, Sparkles, ChevronRight, Shuffle, Mic, Square, MessageSquare, Trophy, FileDown } from 'lucide-react';
 import {
   dbGetWords,
   dbGetWordMedia,
@@ -12,7 +12,13 @@ import {
   dbDeleteProverb,
   dbGetTodayProverb,
   dbSetTodayProverb,
+  dbGetQuizToday,
+  dbSetQuizToday,
+  dbGetQuizAttempt,
+  dbSaveQuizAttempt,
 } from './firebase';
+import { kstDateString, buildQuizQuestion, getQuizUserKey, quizAttemptId } from './quiz';
+import { makeCardsPdf, downloadBlob } from './cardPdf';
 
 // ==================== 상수 ====================
 const NICK_KEY = 'jejumal:nickname'; // 닉네임은 각자 기기(브라우저)에만 저장돼요.
@@ -434,6 +440,58 @@ function GlobalStyle() {
       }
       .pager-number.active { border-color: var(--accent-500); background: var(--accent-500); color: var(--white); }
       .pager-dots { color: var(--ink-500); font-size: 0.85rem; padding: 0 0.15rem; }
+      .dup-badge {
+        display: inline-flex; align-items: center; gap: 0.3rem; align-self: flex-start;
+        background: #FFF0D6; color: #A8560C; border: 2px solid #F5B45A; border-radius: 999px;
+        padding: 0.15rem 0.7rem; font-size: 0.8rem; font-weight: 700;
+      }
+      .pending-item.is-duplicate { border-color: #F5B45A; background: #FFFBF2; }
+      .modal-backdrop {
+        position: fixed; inset: 0; background: rgba(40, 36, 60, 0.5); z-index: 50;
+        display: flex; align-items: center; justify-content: center; padding: 1.25rem;
+      }
+      .modal-box {
+        background: var(--white); border-radius: 20px; padding: 1.5rem 1.4rem; max-width: 380px; width: 100%;
+        box-shadow: 0 10px 40px rgba(0,0,0,0.25); display: flex; flex-direction: column; gap: 1.1rem;
+      }
+      .modal-box p { margin: 0; line-height: 1.6; font-weight: 500; }
+      .modal-actions { display: flex; gap: 0.6rem; flex-wrap: wrap; justify-content: flex-end; }
+      .card-toolbar {
+        display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;
+        background: var(--accent-100); border: 2px solid var(--line); border-radius: 16px;
+        padding: 0.6rem 0.8rem; margin-bottom: 0.9rem; font-size: 0.9rem;
+      }
+      .card-toolbar .spacer { flex: 1; }
+      .btn-with-icon { display: inline-flex; align-items: center; gap: 0.4rem; }
+      .btn-small { padding: 0.35rem 0.9rem; font-size: 0.85rem; }
+      .word-row-select { display: flex; align-items: stretch; gap: 0.5rem; }
+      .word-row-select > .word-row { flex: 1; min-width: 0; }
+      .row-check {
+        display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+        width: 2.4rem; background: var(--white); border: 2px solid var(--line); border-radius: 16px; cursor: pointer;
+      }
+      .row-check input { width: 1.2rem; height: 1.2rem; accent-color: var(--accent-500); cursor: pointer; }
+      .row-check.checked { border-color: var(--accent-500); background: var(--accent-100); }
+      .detail-actions { display: flex; gap: 0.6rem; flex-wrap: wrap; margin-bottom: 1.1rem; }
+      .quiz-card { border: 2px solid var(--line); border-radius: 20px; background: var(--white); padding: 1.3rem 1.2rem; display: flex; flex-direction: column; gap: 0.9rem; }
+      .quiz-date { margin: 0; font-size: 0.8rem; color: var(--ink-500); }
+      .quiz-prompt { margin: 0; color: var(--ink-500); font-size: 0.9rem; }
+      .quiz-word { font-family: 'Jua', sans-serif; font-size: 2.1rem; margin: 0; color: var(--tangerine-600); word-break: keep-all; }
+      .quiz-word.chuja { color: var(--sea-700); }
+      .quiz-example { margin: 0; background: var(--paper-100); border-radius: 12px; padding: 0.7rem 0.9rem; line-height: 1.6; }
+      .quiz-choices { display: flex; flex-direction: column; gap: 0.6rem; }
+      .quiz-choice {
+        text-align: left; background: var(--white); border: 2px solid var(--line); border-radius: 14px;
+        padding: 0.8rem 1rem; cursor: pointer; font-weight: 500; color: var(--ink-800); font-size: 1.05rem;
+      }
+      .quiz-choice:hover:not(:disabled) { border-color: var(--accent-500); }
+      .quiz-choice:disabled { cursor: default; }
+      .quiz-choice.correct { border-color: var(--accent-500); background: var(--accent-100); }
+      .quiz-choice.wrong { border-color: var(--danger-border); background: #FDEAEA; }
+      .quiz-result { margin: 0; font-weight: 700; font-size: 1.05rem; }
+      .quiz-result.ok { color: var(--accent-600); }
+      .quiz-result.no { color: var(--danger-600); }
+      .quiz-done-note { margin: 0; background: #FFF0D6; border: 2px solid #F5B45A; color: #7A3E06; border-radius: 12px; padding: 0.6rem 0.9rem; font-weight: 700; }
       .app-footer { text-align: center; padding: 1.25rem; color: var(--ink-500); font-size: 0.8rem; border-top: 3px solid var(--line); }
     `}</style>
   );
@@ -1096,7 +1154,7 @@ function WordRow({ word, onSelect }) {
 }
 
 // ==================== 낱말/표현 상세 페이지 ====================
-function WordDetailPage({ word, isAdmin, onAddComment, onDeleteComment, onSuggestEdit, onBack }) {
+function WordDetailPage({ word, isAdmin, onAddComment, onDeleteComment, onSuggestEdit, onBack, onMakeCard, cardBusy }) {
   if (!word) {
     return (
       <section className="view">
@@ -1145,6 +1203,12 @@ function WordDetailPage({ word, isAdmin, onAddComment, onDeleteComment, onSugges
           </>
         )}
       </div>
+      <div className="detail-actions">
+        <button type="button" className="btn-secondary btn-with-icon" onClick={onMakeCard} disabled={!!cardBusy}>
+          <FileDown size={16} aria-hidden="true" />
+          {cardBusy || '낱말/표현 카드 만들기 (PDF)'}
+        </button>
+      </div>
       <WordDetail
         word={word}
         isAdmin={isAdmin}
@@ -1163,6 +1227,7 @@ function Header({ view, setView }) {
     ['dictionary', '사전', BookOpen],
     ['register', '단어 등록', PenSquare],
     ['registerExpression', '표현 등록', MessageSquare],
+    ['quiz', '퀴즈', Trophy],
     ['admin', '관리자', ShieldCheck],
   ];
   return (
@@ -1265,16 +1330,50 @@ function DictionaryView({
   page,
   setPage,
   onSelectWord,
+  selectedIds,
+  onToggleSelect,
+  onSelectMany,
+  onClearSelection,
+  onMakeCards,
+  cardBusy,
 }) {
   const approved = words.filter((w) => w.status === 'approved' && !w.hidden);
   const kindFiltered = kindFilter === 'all' ? approved : approved.filter((w) => itemKind(w) === kindFilter);
   const filtered = filterWords(kindFiltered, term);
   const sorted = sortWords(filtered, sortField, sortDir);
   const { pageItems, totalPages, clampedPage } = paginate(sorted, page, PAGE_SIZE);
+  const validSelected = selectedIds.filter((id) => approved.some((w) => w.id === id));
+  const allPageSelected = pageItems.length > 0 && pageItems.every((w) => selectedIds.includes(w.id));
 
   return (
     <section className="view">
       <h2 className="view-title">사전</h2>
+      <div className="card-toolbar">
+        <span>
+          카드로 만들 낱말/표현을 체크하세요. <strong>{validSelected.length}개 선택</strong>
+        </span>
+        <span className="spacer" />
+        <button
+          type="button"
+          className="btn-ghost btn-small"
+          onClick={() => onSelectMany(pageItems.map((w) => w.id), !allPageSelected)}
+          disabled={pageItems.length === 0}
+        >
+          {allPageSelected ? '이 페이지 선택 해제' : '이 페이지 모두 선택'}
+        </button>
+        <button type="button" className="btn-ghost btn-small" onClick={onClearSelection} disabled={validSelected.length === 0}>
+          선택 비우기
+        </button>
+        <button
+          type="button"
+          className="btn-secondary btn-small btn-with-icon"
+          onClick={() => onMakeCards(validSelected)}
+          disabled={validSelected.length === 0 || !!cardBusy}
+        >
+          <FileDown size={15} aria-hidden="true" />
+          {cardBusy || '선택한 카드 PDF 만들기'}
+        </button>
+      </div>
       <div className="dict-controls-row" style={{ marginBottom: '0.75rem' }}>
         <span className="dict-controls-label">보기</span>
         {[
@@ -1353,9 +1452,22 @@ function DictionaryView({
           </div>
         )}
         {sorted.length === 0 && <p className="empty-state">조건에 맞는 낱말이 없어요.</p>}
-        {pageItems.map((w) => (
-          <WordRow key={w.id} word={w} onSelect={() => onSelectWord(w.id)} />
-        ))}
+        {pageItems.map((w) => {
+          const checked = selectedIds.includes(w.id);
+          return (
+            <div key={w.id} className="word-row-select">
+              <label className={`row-check ${checked ? 'checked' : ''}`} title="카드 만들기에 포함">
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  onChange={() => onToggleSelect(w.id)}
+                  aria-label="카드 만들기에 포함"
+                />
+              </label>
+              <WordRow word={w} onSelect={() => onSelectWord(w.id)} />
+            </div>
+          );
+        })}
       </div>
       <Pager page={clampedPage} totalPages={totalPages} onChange={setPage} />
     </section>
@@ -1363,8 +1475,24 @@ function DictionaryView({
 }
 
 // ==================== 낱말 등록 ====================
-function RegisterView({ defaultNickname, onSubmit }) {
+// 이미 사전에 있는 낱말/표현을 또 신청하려 할 때 한 번 더 물어보는 확인 창이에요.
+function DuplicateConfirm({ onIgnore, onCancel }) {
+  return (
+    <div className="modal-backdrop" role="dialog" aria-modal="true" aria-label="중복 등록 확인">
+      <div className="modal-box">
+        <p>똑같은 낱말/표현이 이미 사전에 등록되어 있습니다. 등록 신청을 계속 하시겠습니까?</p>
+        <div className="modal-actions">
+          <button type="button" className="btn-ghost" onClick={onCancel}>취소</button>
+          <button type="button" className="btn-primary" onClick={onIgnore}>무시하고 신청하기</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function RegisterView({ defaultNickname, onSubmit, checkDuplicate }) {
   const [done, setDone] = useState(false);
+  const [pendingVals, setPendingVals] = useState(null);
 
   if (done) {
     return (
@@ -1386,17 +1514,32 @@ function RegisterView({ defaultNickname, onSubmit }) {
         defaultNickname={defaultNickname}
         submitLabel="등록 신청하기"
         onSubmit={(vals) => {
-          onSubmit(vals);
+          if (checkDuplicate && checkDuplicate(vals)) {
+            setPendingVals(vals);
+            return;
+          }
+          onSubmit(vals, false);
           setDone(true);
         }}
       />
+      {pendingVals && (
+        <DuplicateConfirm
+          onCancel={() => setPendingVals(null)}
+          onIgnore={() => {
+            onSubmit(pendingVals, true);
+            setPendingVals(null);
+            setDone(true);
+          }}
+        />
+      )}
     </section>
   );
 }
 
 // ==================== 표현 등록 ====================
-function RegisterExpressionView({ defaultNickname, onSubmit }) {
+function RegisterExpressionView({ defaultNickname, onSubmit, checkDuplicate }) {
   const [done, setDone] = useState(false);
+  const [pendingVals, setPendingVals] = useState(null);
 
   if (done) {
     return (
@@ -1418,10 +1561,24 @@ function RegisterExpressionView({ defaultNickname, onSubmit }) {
         defaultNickname={defaultNickname}
         submitLabel="등록 신청하기"
         onSubmit={(vals) => {
-          onSubmit(vals);
+          if (checkDuplicate && checkDuplicate(vals)) {
+            setPendingVals(vals);
+            return;
+          }
+          onSubmit(vals, false);
           setDone(true);
         }}
       />
+      {pendingVals && (
+        <DuplicateConfirm
+          onCancel={() => setPendingVals(null)}
+          onIgnore={() => {
+            onSubmit(pendingVals, true);
+            setPendingVals(null);
+            setDone(true);
+          }}
+        />
+      )}
     </section>
   );
 }
@@ -1592,8 +1749,11 @@ function AdminView({
                 ? p.type === 'edit' ? '표현 수정 제안' : '새 표현'
                 : p.type === 'edit' ? '낱말 수정 제안' : '새 낱말';
             return (
-              <div key={p.id} className="pending-item">
+              <div key={p.id} className={`pending-item ${p.duplicate ? 'is-duplicate' : ''}`}>
                 <p className="pending-type">{typeLabel}</p>
+                {p.duplicate && p.type !== 'edit' && (
+                  <p className="dup-badge">⚠ 중복된 {kind === 'expression' ? '표현' : '낱말'} — 이미 사전에 있는데 무시하고 신청했어요</p>
+                )}
                 <div className="pending-fields">
                   {kind === 'expression' ? (
                     <>
@@ -1784,6 +1944,145 @@ function AdminStatsView({ words }) {
   );
 }
 
+// ==================== 오늘의 퀴즈 ====================
+function QuizView({ words, onGoWord, onError }) {
+  const [dateStr, setDateStr] = useState(() => kstDateString());
+  const [state, setState] = useState({ status: 'loading' }); // loading | none | ready | done
+  const [saving, setSaving] = useState(false);
+
+  // 대한민국 시간으로 0시가 지나면 새 문제로 바꿔요. (화면을 열어둔 채로 자정을 넘겨도 적용)
+  useEffect(() => {
+    const timer = setInterval(() => {
+      const now = kstDateString();
+      setDateStr((prev) => (prev === now ? prev : now));
+    }, 20000);
+    return () => clearInterval(timer);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    setState({ status: 'loading' });
+    (async () => {
+      let question = null;
+      try {
+        const saved = await dbGetQuizToday();
+        if (saved && saved.date === dateStr && Array.isArray(saved.choices)) question = saved;
+      } catch (e) {
+        // 읽기 실패 → 아래에서 직접 만들어요 (같은 날이면 누가 만들어도 똑같은 문제가 나와요)
+      }
+      if (!question) {
+        question = buildQuizQuestion(words, dateStr);
+        if (question) {
+          try {
+            await dbSetQuizToday(question);
+          } catch (e) {
+            // 저장 실패해도 문제는 보여줘요
+          }
+        }
+      }
+      if (cancelled) return;
+      if (!question) {
+        setState({ status: 'none' });
+        return;
+      }
+      let attempt = null;
+      try {
+        const key = await getQuizUserKey();
+        attempt = await dbGetQuizAttempt(quizAttemptId(dateStr, key));
+      } catch (e) {
+        // 참여 기록을 못 읽으면 처음 푸는 것으로 처리해요
+      }
+      if (cancelled) return;
+      if (attempt && attempt.date === dateStr) {
+        setState({ status: 'done', question, choice: attempt.choice, already: true });
+      } else {
+        setState({ status: 'ready', question });
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [dateStr]);
+
+  async function pick(choice) {
+    if (state.status !== 'ready' || saving) return;
+    const question = state.question;
+    setSaving(true);
+    setState({ status: 'done', question, choice, already: false });
+    try {
+      const key = await getQuizUserKey();
+      await dbSaveQuizAttempt(quizAttemptId(dateStr, key), {
+        date: dateStr,
+        choice,
+        correct: choice === question.answer,
+        at: new Date().toISOString(),
+      });
+    } catch (e) {
+      console.error('퀴즈 기록 저장 실패', e);
+      if (onError) onError(`퀴즈 참여 기록을 저장하지 못했어요. (에러: ${e.code || e.message || e})`);
+    }
+    setSaving(false);
+  }
+
+  const q = state.question;
+  const isDone = state.status === 'done';
+  const targetWord = q ? words.find((w) => w.id === q.wordId && w.status === 'approved' && !w.hidden) : null;
+
+  return (
+    <section className="view">
+      <h2 className="view-title">오늘의 퀴즈</h2>
+      <p className="view-desc">하루에 한 문제! 매일 밤 0시(한국 시간)에 새 문제로 바뀌어요.</p>
+      {state.status === 'loading' && <p className="loading">문제를 불러오는 중...</p>}
+      {state.status === 'none' && (
+        <div className="notice-card">
+          <p>퀴즈를 만들기에 사전에 낱말이 아직 부족해요. 낱말이 더 모이면 퀴즈가 열려요!</p>
+        </div>
+      )}
+      {(state.status === 'ready' || isDone) && q && (
+        <div className="quiz-card">
+          <p className="quiz-date">{q.date}</p>
+          {isDone && state.already && <p className="quiz-done-note">이미 오늘의 퀴즈를 완료하였습니다.</p>}
+          <p className="quiz-prompt">
+            <Chip type={q.dialectLabel === '추자생활언어' ? 'chuja' : 'jeju'}>{q.dialectLabel}</Chip> 이 말은 표준어로 무엇일까요?
+          </p>
+          <p className={`quiz-word ${q.dialectLabel === '추자생활언어' ? 'chuja' : ''}`}>{q.dialectText}</p>
+          {q.example && <p className="quiz-example">예문: {q.example}</p>}
+          <div className="quiz-choices">
+            {q.choices.map((c) => {
+              let cls = 'quiz-choice';
+              if (isDone) {
+                if (c === q.answer) cls += ' correct';
+                else if (c === state.choice) cls += ' wrong';
+              }
+              return (
+                <button key={c} type="button" className={cls} disabled={isDone || saving} onClick={() => pick(c)}>
+                  {c}
+                  {isDone && c === q.answer && ' ✓'}
+                </button>
+              );
+            })}
+          </div>
+          {isDone && (
+            <>
+              <p className={`quiz-result ${state.choice === q.answer ? 'ok' : 'no'}`}>
+                {state.choice === q.answer ? '정답이에요! 🎉' : `아쉬워요. 정답은 "${q.answer}"예요.`}
+              </p>
+              {targetWord ? (
+                <div className="form-actions">
+                  <button type="button" className="btn-primary" onClick={() => onGoWord(q.wordId)}>사전에서 찾아보기</button>
+                </div>
+              ) : (
+                <p className="muted small">이 낱말은 지금 사전에서 볼 수 없어요.</p>
+              )}
+            </>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
 // ==================== 메인 앱 ====================
 export default function App() {
   const [words, setWords] = useState([]);
@@ -1802,6 +2101,8 @@ export default function App() {
   const [selectedWordId, setSelectedWordId] = useState(null);
   const [mediaMap, setMediaMap] = useState({}); // { [wordId]: { imageUrl, audio } }
   const [dbError, setDbError] = useState('');
+  const [selectedIds, setSelectedIds] = useState([]); // 카드 만들기용으로 체크한 낱말/표현 id
+  const [cardBusy, setCardBusy] = useState(''); // 카드 PDF를 만드는 동안 보여줄 진행 문구
 
   useEffect(() => {
     (async () => {
@@ -1876,7 +2177,19 @@ export default function App() {
     }
   }
 
-  async function handleRegisterItem(kind, vals) {
+  // 같은 글자의 표준어(낱말) / 같은 문장(표현)이 이미 사전에 실려 있는지 확인해요.
+  // (숨김 처리된 항목과 승인 대기 중인 항목은 "사전에 등록된 것"으로 보지 않아요.)
+  function checkDuplicate(kind, vals) {
+    const norm = (v) => String(v || '').replace(/\s+/g, ' ').trim();
+    const key = kind === 'expression' ? 'text' : 'standard';
+    const target = norm(vals[key]);
+    if (!target) return false;
+    return words.some(
+      (w) => w.status === 'approved' && !w.hidden && itemKind(w) === kind && norm(w[key]) === target
+    );
+  }
+
+  async function handleRegisterItem(kind, vals, duplicate) {
     rememberNickname(vals.nickname);
     const now = new Date().toISOString();
     const fields = CONTENT_FIELDS[kind] || CONTENT_FIELDS.word;
@@ -1893,6 +2206,7 @@ export default function App() {
       audio: vals.audio || {},
       status: 'pending',
       hidden: false,
+      duplicate: !!duplicate,
       registeredBy: vals.nickname,
       registeredAt: now,
       lastEditedBy: '',
@@ -1908,12 +2222,12 @@ export default function App() {
     }
   }
 
-  function handleRegisterNew(vals) {
-    return handleRegisterItem('word', vals);
+  function handleRegisterNew(vals, duplicate) {
+    return handleRegisterItem('word', vals, duplicate);
   }
 
-  function handleRegisterExpression(vals) {
-    return handleRegisterItem('expression', vals);
+  function handleRegisterExpression(vals, duplicate) {
+    return handleRegisterItem('expression', vals, duplicate);
   }
 
   async function handleSuggestEdit(targetId, kind, vals) {
@@ -2195,6 +2509,50 @@ export default function App() {
     }
   }
 
+  function toggleSelect(id) {
+    setSelectedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  }
+
+  function selectMany(ids, on) {
+    setSelectedIds((prev) => {
+      const rest = prev.filter((x) => !ids.includes(x));
+      return on ? [...rest, ...ids] : rest;
+    });
+  }
+
+  // 낱말/표현 카드를 PDF로 만들어 내려받아요. (이미지는 필요할 때 그때그때 불러와요.)
+  async function handleMakeCards(ids) {
+    if (cardBusy) return;
+    const list = ids.map((id) => words.find((w) => w.id === id)).filter(Boolean);
+    if (list.length === 0) return;
+    setCardBusy(`만드는 중... (0/${list.length})`);
+    try {
+      const items = [];
+      for (const w of list) {
+        let media = mediaMap[w.id];
+        if (!media) {
+          try {
+            media = await dbGetWordMedia(w.id);
+            const loaded = media;
+            setMediaMap((prev) => (prev[w.id] ? prev : { ...prev, [w.id]: loaded }));
+          } catch (e) {
+            media = { imageUrl: '' };
+          }
+        }
+        items.push({ ...w, imageUrl: media.imageUrl || '' });
+      }
+      const blob = await makeCardsPdf(items, (done, total) => setCardBusy(`만드는 중... (${done}/${total})`));
+      const first = itemKind(list[0]) === 'expression' ? list[0].text : list[0].standard;
+      const safe = String(first || '카드').replace(/[\\/:*?"<>|\s]+/g, '_').slice(0, 20);
+      downloadBlob(blob, list.length === 1 ? `말바당카드_${safe}.pdf` : `말바당카드_${list.length}장.pdf`);
+    } catch (e) {
+      console.error('카드 만들기 실패', e);
+      setDbError(`카드를 만들지 못했어요. (에러: ${e.message || e})`);
+    } finally {
+      setCardBusy('');
+    }
+  }
+
   function handleSelectWord(id) {
     setSelectedWordId(id);
     setView('detail');
@@ -2259,6 +2617,12 @@ export default function App() {
                 page={dictPage}
                 setPage={setDictPage}
                 onSelectWord={handleSelectWord}
+                selectedIds={selectedIds}
+                onToggleSelect={toggleSelect}
+                onSelectMany={selectMany}
+                onClearSelection={() => setSelectedIds([])}
+                onMakeCards={handleMakeCards}
+                cardBusy={cardBusy}
               />
             )}
             {view === 'detail' && (
@@ -2269,12 +2633,19 @@ export default function App() {
                 onDeleteComment={handleDeleteComment}
                 onSuggestEdit={(vals) => handleSuggestEdit(selectedWordId, itemKind(selectedWord), vals)}
                 onBack={handleBackToDictionary}
+                onMakeCard={() => handleMakeCards([selectedWordId])}
+                cardBusy={cardBusy}
               />
             )}
+            {view === 'quiz' && <QuizView words={words} onGoWord={handleSelectWord} onError={setDbError} />}
             {/* 등록 화면은 예전에 입력했던 닉네임을 자동으로 채우지 않고, 매번 새로 입력하게 해요. */}
-            {view === 'register' && <RegisterView defaultNickname="" onSubmit={handleRegisterNew} />}
+            {view === 'register' && <RegisterView defaultNickname="" onSubmit={handleRegisterNew} checkDuplicate={(vals) => checkDuplicate('word', vals)} />}
             {view === 'registerExpression' && (
-              <RegisterExpressionView defaultNickname="" onSubmit={handleRegisterExpression} />
+              <RegisterExpressionView
+                defaultNickname=""
+                onSubmit={handleRegisterExpression}
+                checkDuplicate={(vals) => checkDuplicate('expression', vals)}
+              />
             )}
             {view === 'admin' && (
               <AdminView
