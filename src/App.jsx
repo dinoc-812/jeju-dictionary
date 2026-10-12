@@ -505,7 +505,8 @@ function GlobalStyle() {
       .mg-pill.turn { box-shadow: 0 0 0 3px var(--pc); }
       .mg-time { margin-left: auto; font-weight: 700; font-variant-numeric: tabular-nums; }
       .mg-board { display: grid; grid-template-columns: repeat(6, 1fr); gap: 0.5rem; perspective: 800px; }
-      @media (max-width: 560px) { .mg-board { grid-template-columns: repeat(4, 1fr); gap: 0.4rem; } }
+      .mg-front .mg-text.len-mid { font-size: 0.92rem; }
+      .mg-front .mg-text.len-long { font-size: 0.8rem; }
       .mg-card { position: relative; aspect-ratio: 3 / 4; padding: 0; border: none; background: none; cursor: pointer; }
       .mg-card:disabled { cursor: default; }
       .mg-inner { position: absolute; inset: 0; transform-style: preserve-3d; transition: transform 0.35s; }
@@ -519,6 +520,26 @@ function GlobalStyle() {
       .mg-front.is-jeju .mg-kind { background: #FF8A3D; } .mg-front.is-jeju .mg-text { color: #E8731A; }
       .mg-front.owned { border-color: var(--pc); background: var(--pcbg); }
       .mg-owner { position: absolute; top: -6px; right: -6px; background: var(--pc); color: var(--white); border-radius: 999px; font-size: 0.7rem; font-weight: 700; padding: 0.05rem 0.4rem; z-index: 2; }
+      /* 스마트폰: 카드 수에 맞춰 열 수를 정하고 카드를 작게 해서, 스크롤을 거의 안 해도 한 화면에 보이게 해요. */
+      @media (max-width: 560px) {
+        .mg-board { gap: 0.3rem; grid-template-columns: repeat(4, 1fr); }
+        .mg-board[data-n="16"] { grid-template-columns: repeat(4, 1fr); }
+        .mg-board[data-n="20"] { grid-template-columns: repeat(5, 1fr); }
+        .mg-board[data-n="24"] { grid-template-columns: repeat(6, 1fr); }
+        .mg-board[data-n="30"] { grid-template-columns: repeat(6, 1fr); }
+        .mg-card { aspect-ratio: 1 / 1.15; }
+        .mg-face { border-width: 2px; border-radius: 9px; gap: 0.12rem; padding: 0.1rem; }
+        .mg-back { font-size: 1.15rem; background-size: 12px 12px; }
+        .mg-front .mg-kind { font-size: 0.5rem; padding: 0 0.3rem; }
+        .mg-front .mg-text { font-size: 0.78rem; }
+        .mg-front .mg-text.len-mid { font-size: 0.62rem; }
+        .mg-front .mg-text.len-long { font-size: 0.52rem; }
+        .mg-board[data-n="16"] .mg-front .mg-text { font-size: 0.95rem; }
+        .mg-board[data-n="16"] .mg-front .mg-text.len-mid { font-size: 0.82rem; }
+        .mg-board[data-n="16"] .mg-front .mg-text.len-long { font-size: 0.7rem; }
+        .mg-board[data-n="16"] .mg-front .mg-kind { font-size: 0.6rem; }
+        .mg-owner { font-size: 0.55rem; top: -4px; right: -4px; }
+      }
       .mg-result { border: 3px solid var(--accent-500); border-radius: 18px; background: var(--white); padding: 1rem 1.2rem; margin-bottom: 0.9rem; display: flex; flex-direction: column; gap: 0.6rem; }
       .mg-result h3 { margin: 0; font-family: 'Jua', sans-serif; font-weight: 400; font-size: 1.4rem; }
       .mg-result p { margin: 0; }
@@ -2113,7 +2134,7 @@ function QuizView({ words, onGoWord, onError }) {
 }
 
 // ==================== 카드 짝맞추기 ====================
-const MEMORY_PAIR_OPTIONS = [9, 11, 15, 19]; // 짝 수 (카드는 그 두 배: 18, 22, 30, 38장)
+const MEMORY_PAIR_OPTIONS = [8, 10, 12, 15]; // 짝 수 (카드는 그 두 배: 16, 20, 24, 30장)
 const PLAYER_COLORS = [
   { main: '#3B7DDD', bg: '#E3EEFF' },
   { main: '#E5487F', bg: '#FFE4EE' },
@@ -2156,7 +2177,7 @@ function fmtTime(ms) {
 
 function MemoryGameView({ words }) {
   const [players, setPlayers] = useState(1);
-  const [pairCount, setPairCount] = useState(9);
+  const [pairCount, setPairCount] = useState(8);
   const [game, setGame] = useState(null); // null이면 설정 화면
   const [now, setNow] = useState(Date.now());
   const lockRef = useRef(false);
@@ -2342,12 +2363,12 @@ function MemoryGameView({ words }) {
         </div>
       )}
 
-      <div className="mg-board">
+      <div className="mg-board" data-n={game.cards.length}>
         {game.cards.map((c, i) => {
           const owner = game.owner[i];
           const up = game.flipped.includes(i) || owner !== undefined;
           const col = owner !== undefined ? PLAYER_COLORS[owner] : null;
-          const size = c.text.length > 6 ? '0.8rem' : c.text.length > 4 ? '0.92rem' : undefined;
+          const lenCls = c.text.length > 6 ? 'len-long' : c.text.length > 4 ? 'len-mid' : '';
           return (
             <button
               key={i}
@@ -2363,7 +2384,7 @@ function MemoryGameView({ words }) {
                 <div className="mg-face mg-back">?</div>
                 <div className={`mg-face mg-front is-${c.side} ${col ? 'owned' : ''}`}>
                   <span className="mg-kind">{c.side === 'standard' ? '표준어' : '제주어'}</span>
-                  <span className="mg-text" style={size ? { fontSize: size } : undefined}>{c.text}</span>
+                  <span className={`mg-text ${lenCls}`}>{c.text}</span>
                 </div>
               </div>
             </button>
