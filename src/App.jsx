@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Home, BookOpen, PenSquare, ShieldCheck, Sparkles, ChevronRight, Shuffle, Mic, Square, MessageSquare, Trophy, FileDown } from 'lucide-react';
+import { Home, BookOpen, PenSquare, Sparkles, ChevronRight, Shuffle, Mic, Square, MessageSquare, Trophy, FileDown, Gamepad2 } from 'lucide-react';
 import {
   dbGetWords,
   dbGetWordMedia,
@@ -492,6 +492,36 @@ function GlobalStyle() {
       .quiz-result.ok { color: var(--accent-600); }
       .quiz-result.no { color: var(--danger-600); }
       .quiz-done-note { margin: 0; background: #FFF0D6; border: 2px solid #F5B45A; color: #7A3E06; border-radius: 12px; padding: 0.6rem 0.9rem; font-weight: 700; }
+      .footer-secret { margin: 0; cursor: default; user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent; }
+      .mg-setup { display: flex; flex-direction: column; gap: 1.1rem; }
+      .mg-group { display: flex; flex-direction: column; gap: 0.5rem; }
+      .mg-label { font-weight: 700; margin: 0; }
+      .mg-options { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+      .mg-option { border: 2px solid var(--line); background: var(--white); border-radius: 14px; padding: 0.55rem 1rem; cursor: pointer; font-weight: 500; color: var(--ink-800); }
+      .mg-option.active { border-color: var(--accent-500); background: var(--accent-500); color: var(--white); }
+      .mg-option:disabled { opacity: 0.4; cursor: default; }
+      .mg-bar { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin-bottom: 0.8rem; }
+      .mg-pill { border: 3px solid var(--line); background: var(--white); border-radius: 999px; padding: 0.25rem 0.8rem; font-weight: 700; font-size: 0.9rem; }
+      .mg-pill.turn { box-shadow: 0 0 0 3px var(--pc); }
+      .mg-time { margin-left: auto; font-weight: 700; font-variant-numeric: tabular-nums; }
+      .mg-board { display: grid; grid-template-columns: repeat(6, 1fr); gap: 0.5rem; perspective: 800px; }
+      @media (max-width: 560px) { .mg-board { grid-template-columns: repeat(4, 1fr); gap: 0.4rem; } }
+      .mg-card { position: relative; aspect-ratio: 3 / 4; padding: 0; border: none; background: none; cursor: pointer; }
+      .mg-card:disabled { cursor: default; }
+      .mg-inner { position: absolute; inset: 0; transform-style: preserve-3d; transition: transform 0.35s; }
+      .mg-card.up .mg-inner { transform: rotateY(180deg); }
+      .mg-face { position: absolute; inset: 0; backface-visibility: hidden; -webkit-backface-visibility: hidden; border-radius: 12px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.25rem; padding: 0.2rem; border: 3px solid var(--white); box-shadow: 0 3px 0 rgba(0,0,0,0.15); }
+      .mg-back { background: var(--accent-500); color: var(--white); font-family: 'Jua', sans-serif; font-size: 1.6rem; background-image: radial-gradient(rgba(255,255,255,0.25) 3px, transparent 4px); background-size: 16px 16px; }
+      .mg-front { transform: rotateY(180deg); background: var(--white); border-color: var(--line); word-break: keep-all; text-align: center; line-height: 1.25; }
+      .mg-front .mg-kind { font-size: 0.62rem; font-weight: 700; color: var(--white); border-radius: 999px; padding: 0.05rem 0.5rem; }
+      .mg-front .mg-text { font-weight: 900; font-size: 1.05rem; }
+      .mg-front.is-standard .mg-kind { background: #5B6CC4; } .mg-front.is-standard .mg-text { color: #2C4A8A; }
+      .mg-front.is-jeju .mg-kind { background: #FF8A3D; } .mg-front.is-jeju .mg-text { color: #E8731A; }
+      .mg-front.owned { border-color: var(--pc); background: var(--pcbg); }
+      .mg-owner { position: absolute; top: -6px; right: -6px; background: var(--pc); color: var(--white); border-radius: 999px; font-size: 0.7rem; font-weight: 700; padding: 0.05rem 0.4rem; z-index: 2; }
+      .mg-result { border: 3px solid var(--accent-500); border-radius: 18px; background: var(--white); padding: 1rem 1.2rem; margin-bottom: 0.9rem; display: flex; flex-direction: column; gap: 0.6rem; }
+      .mg-result h3 { margin: 0; font-family: 'Jua', sans-serif; font-weight: 400; font-size: 1.4rem; }
+      .mg-result p { margin: 0; }
       .app-footer { text-align: center; padding: 1.25rem; color: var(--ink-500); font-size: 0.8rem; border-top: 3px solid var(--line); }
     `}</style>
   );
@@ -1228,7 +1258,7 @@ function Header({ view, setView }) {
     ['register', '단어 등록', PenSquare],
     ['registerExpression', '표현 등록', MessageSquare],
     ['quiz', '퀴즈', Trophy],
-    ['admin', '관리자', ShieldCheck],
+    ['memory', '짝맞추기', Gamepad2],
   ];
   return (
     <header className="app-header">
@@ -1709,7 +1739,6 @@ function AdminView({
           {pinError && <p className="form-error">{pinError}</p>}
           <button type="button" className="btn-primary" onClick={handlePinSubmit}>확인</button>
         </div>
-        <p className="muted small" style={{ marginTop: '1rem' }}>데모용 PIN이에요. 실제 서비스에서는 별도의 로그인 방식으로 교체해야 해요.</p>
       </section>
     );
   }
@@ -2077,6 +2106,273 @@ function QuizView({ words, onGoWord, onError }) {
               )}
             </>
           )}
+        </div>
+      )}
+    </section>
+  );
+}
+
+// ==================== 카드 짝맞추기 ====================
+const MEMORY_PAIR_OPTIONS = [9, 11, 15, 19]; // 짝 수 (카드는 그 두 배: 18, 22, 30, 38장)
+const PLAYER_COLORS = [
+  { main: '#3B7DDD', bg: '#E3EEFF' },
+  { main: '#E5487F', bg: '#FFE4EE' },
+  { main: '#E0A400', bg: '#FFF3CC' },
+  { main: '#8E5BD9', bg: '#EFE5FF' },
+];
+
+function shuffleArray(list) {
+  const arr = [...list];
+  for (let i = arr.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [arr[i], arr[j]] = [arr[j], arr[i]];
+  }
+  return arr;
+}
+
+// 짝맞추기에 쓸 수 있는 낱말: 사전에 실린(숨기지 않은) 낱말 중 표준어·제주어가 모두 있고
+// 두 글자가 서로 다른 것. 같은 글자가 카드에 두 번 나오지 않도록 겹치는 건 하나만 써요.
+function memoryEligibleWords(words) {
+  const seen = new Set();
+  const out = [];
+  words
+    .filter((w) => w.status === 'approved' && !w.hidden && itemKind(w) === 'word')
+    .sort((a, b) => String(a.id).localeCompare(String(b.id)))
+    .forEach((w) => {
+      const std = (w.standard || '').trim();
+      const jeju = (w.jeju || '').trim();
+      if (!std || !jeju || std === jeju || seen.has(std) || seen.has(jeju)) return;
+      seen.add(std);
+      seen.add(jeju);
+      out.push({ id: w.id, standard: std, jeju });
+    });
+  return out;
+}
+
+function fmtTime(ms) {
+  const total = Math.floor(ms / 1000);
+  return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
+}
+
+function MemoryGameView({ words }) {
+  const [players, setPlayers] = useState(1);
+  const [pairCount, setPairCount] = useState(9);
+  const [game, setGame] = useState(null); // null이면 설정 화면
+  const [now, setNow] = useState(Date.now());
+  const lockRef = useRef(false);
+  const timerRef = useRef(null);
+
+  const eligible = memoryEligibleWords(words);
+  const maxPairs = eligible.length;
+  const selectablePairs = MEMORY_PAIR_OPTIONS.filter((n) => n <= maxPairs);
+  const effectivePairs = selectablePairs.includes(pairCount) ? pairCount : selectablePairs[0] || 0;
+
+  useEffect(() => {
+    return () => clearTimeout(timerRef.current);
+  }, []);
+
+  // 걸린 시간 표시를 위해 게임 중에는 시계를 계속 갱신해요.
+  useEffect(() => {
+    if (!game || !game.startAt || game.endAt) return undefined;
+    const t = setInterval(() => setNow(Date.now()), 250);
+    return () => clearInterval(t);
+  }, [game && game.startAt, game && game.endAt]);
+
+  function startGame() {
+    if (!effectivePairs) return;
+    const chosen = shuffleArray(eligible).slice(0, effectivePairs);
+    const cards = [];
+    chosen.forEach((w) => {
+      cards.push({ pairId: w.id, side: 'standard', text: w.standard });
+      cards.push({ pairId: w.id, side: 'jeju', text: w.jeju });
+    });
+    lockRef.current = false;
+    clearTimeout(timerRef.current);
+    setGame({
+      cards: shuffleArray(cards),
+      players,
+      flipped: [],
+      owner: {},
+      current: 0,
+      scores: Array(players).fill(0),
+      tries: 0,
+      startAt: null,
+      endAt: null,
+    });
+  }
+
+  function backToSetup() {
+    clearTimeout(timerRef.current);
+    lockRef.current = false;
+    setGame(null);
+  }
+
+  function flip(i) {
+    if (!game || lockRef.current || game.endAt) return;
+    if (game.owner[i] !== undefined || game.flipped.includes(i)) return;
+    const startAt = game.startAt || Date.now();
+    const flipped = [...game.flipped, i];
+    if (flipped.length < 2) {
+      setGame({ ...game, flipped, startAt });
+      return;
+    }
+    const [a, b] = flipped;
+    const ok = game.cards[a].pairId === game.cards[b].pairId && game.cards[a].side !== game.cards[b].side;
+    lockRef.current = true;
+    setGame({ ...game, flipped, startAt, tries: game.tries + 1 });
+    timerRef.current = setTimeout(
+      () => {
+        setGame((prev) => {
+          if (!prev) return prev;
+          if (ok) {
+            const owner = { ...prev.owner, [a]: prev.current, [b]: prev.current };
+            const scores = prev.scores.map((s, idx) => (idx === prev.current ? s + 1 : s));
+            const done = Object.keys(owner).length === prev.cards.length;
+            // 맞추면 같은 사람이 계속해요.
+            return { ...prev, flipped: [], owner, scores, endAt: done ? Date.now() : null };
+          }
+          // 틀리면 다음 사람 차례예요. (1명이면 그대로)
+          return { ...prev, flipped: [], current: (prev.current + 1) % prev.players };
+        });
+        lockRef.current = false;
+      },
+      ok ? 700 : 1100
+    );
+  }
+
+  if (!game) {
+    return (
+      <section className="view">
+        <h2 className="view-title">카드 짝맞추기</h2>
+        <p className="view-desc">표준어 카드와 제주어 카드를 뒤집어서 같은 뜻의 짝을 찾아보세요!</p>
+        {maxPairs < MEMORY_PAIR_OPTIONS[0] ? (
+          <div className="notice-card">
+            <p>짝맞추기를 하려면 사전에 표준어와 제주어가 모두 있는 낱말이 {MEMORY_PAIR_OPTIONS[0]}개 이상 필요해요. (지금 {maxPairs}개)</p>
+          </div>
+        ) : (
+          <div className="mg-setup">
+            <div className="mg-group">
+              <p className="mg-label">몇 명이 할까요?</p>
+              <div className="mg-options">
+                {[1, 2, 3, 4].map((n) => (
+                  <button key={n} type="button" className={`mg-option ${players === n ? 'active' : ''}`} onClick={() => setPlayers(n)}>
+                    {n}명
+                  </button>
+                ))}
+              </div>
+              <p className="muted small">
+                {players === 1 ? '혼자 하면 모든 짝을 맞출 때까지 걸린 시간을 재요.' : '짝을 맞추면 계속하고, 틀리면 다음 사람 차례예요. 짝을 가장 많이 맞춘 사람이 이겨요.'}
+              </p>
+            </div>
+            <div className="mg-group">
+              <p className="mg-label">낱말을 몇 개 쓸까요?</p>
+              <div className="mg-options">
+                {MEMORY_PAIR_OPTIONS.map((n) => (
+                  <button
+                    key={n}
+                    type="button"
+                    className={`mg-option ${effectivePairs === n ? 'active' : ''}`}
+                    disabled={n > maxPairs}
+                    onClick={() => setPairCount(n)}
+                  >
+                    {n}개 ({n * 2}장)
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="form-actions">
+              <button type="button" className="btn-primary" onClick={startGame}>게임 시작!</button>
+            </div>
+          </div>
+        )}
+      </section>
+    );
+  }
+
+  const totalPairs = game.cards.length / 2;
+  const single = game.players === 1;
+  const finished = !!game.endAt;
+  const elapsed = game.startAt ? (game.endAt || now) - game.startAt : 0;
+  const best = Math.max(...game.scores);
+  const winners = game.scores.map((sc, idx) => (sc === best ? idx : -1)).filter((idx) => idx >= 0);
+
+  return (
+    <section className="view">
+      <h2 className="view-title">카드 짝맞추기</h2>
+      <div className="mg-bar">
+        {single ? (
+          <span className="mg-pill">맞춘 짝 {game.scores[0]} / {totalPairs}</span>
+        ) : (
+          game.scores.map((sc, idx) => (
+            <span
+              key={idx}
+              className={`mg-pill ${!finished && game.current === idx ? 'turn' : ''}`}
+              style={{ '--pc': PLAYER_COLORS[idx].main, borderColor: PLAYER_COLORS[idx].main, background: PLAYER_COLORS[idx].bg, color: PLAYER_COLORS[idx].main }}
+            >
+              {idx + 1}P {sc}쌍{!finished && game.current === idx ? ' ◀ 차례' : ''}
+            </span>
+          ))
+        )}
+        <span className="mg-time">{single ? `⏱ ${fmtTime(elapsed)}` : `남은 짝 ${totalPairs - game.scores.reduce((a, b) => a + b, 0)}`}</span>
+      </div>
+
+      {finished && (
+        <div className="mg-result">
+          {single ? (
+            <>
+              <h3>🎉 모든 짝을 맞췄어요!</h3>
+              <p>걸린 시간 <strong>{fmtTime(elapsed)}</strong> · 뒤집어 본 횟수 {game.tries}번</p>
+            </>
+          ) : (
+            <>
+              <h3>
+                🏆 {winners.length === game.players
+                  ? '모두 같은 점수예요! 무승부!'
+                  : winners.length > 1
+                    ? `공동 우승: ${winners.map((w) => `${w + 1}P`).join(', ')}`
+                    : `${winners[0] + 1}P 우승!`}
+              </h3>
+              <p>{game.scores.map((sc, idx) => `${idx + 1}P ${sc}쌍`).join(' · ')}</p>
+            </>
+          )}
+          <div className="form-actions">
+            <button type="button" className="btn-primary" onClick={startGame}>다시 하기</button>
+            <button type="button" className="btn-ghost" onClick={backToSetup}>설정 바꾸기</button>
+          </div>
+        </div>
+      )}
+
+      <div className="mg-board">
+        {game.cards.map((c, i) => {
+          const owner = game.owner[i];
+          const up = game.flipped.includes(i) || owner !== undefined;
+          const col = owner !== undefined ? PLAYER_COLORS[owner] : null;
+          const size = c.text.length > 6 ? '0.8rem' : c.text.length > 4 ? '0.92rem' : undefined;
+          return (
+            <button
+              key={i}
+              type="button"
+              className={`mg-card ${up ? 'up' : ''}`}
+              disabled={up || finished}
+              onClick={() => flip(i)}
+              aria-label={up ? c.text : '뒤집지 않은 카드'}
+              style={col ? { '--pc': col.main, '--pcbg': col.bg } : undefined}
+            >
+              {col && !single && <span className="mg-owner">{owner + 1}P</span>}
+              <div className="mg-inner">
+                <div className="mg-face mg-back">?</div>
+                <div className={`mg-face mg-front is-${c.side} ${col ? 'owned' : ''}`}>
+                  <span className="mg-kind">{c.side === 'standard' ? '표준어' : '제주어'}</span>
+                  <span className="mg-text" style={size ? { fontSize: size } : undefined}>{c.text}</span>
+                </div>
+              </div>
+            </button>
+          );
+        })}
+      </div>
+      {!finished && (
+        <div className="form-actions" style={{ marginTop: '1rem' }}>
+          <button type="button" className="btn-ghost" onClick={backToSetup}>그만하기</button>
         </div>
       )}
     </section>
@@ -2637,6 +2933,7 @@ export default function App() {
                 cardBusy={cardBusy}
               />
             )}
+            {view === 'memory' && <MemoryGameView words={words} />}
             {view === 'quiz' && <QuizView words={words} onGoWord={handleSelectWord} onError={setDbError} />}
             {/* 등록 화면은 예전에 입력했던 닉네임을 자동으로 채우지 않고, 매번 새로 입력하게 해요. */}
             {view === 'register' && <RegisterView defaultNickname="" onSubmit={handleRegisterNew} checkDuplicate={(vals) => checkDuplicate('word', vals)} />}
@@ -2668,7 +2965,16 @@ export default function App() {
         )}
       </main>
       <footer className="app-footer">
-        <p>이 사전은 이용자들이 함께 채워가는 열린 사전이에요.</p>
+        {/* 관리자 페이지로 들어가는 숨은 입구예요. 링크처럼 보이지 않게 일부러 일반 글처럼 꾸몄어요. */}
+        <p
+          className="footer-secret"
+          onClick={() => {
+            setView('admin');
+            window.scrollTo(0, 0);
+          }}
+        >
+          이 사전은 이용자들이 함께 채워가는 열린 사전이에요.
+        </p>
       </footer>
     </div>
   );
