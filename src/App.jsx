@@ -548,6 +548,8 @@ function GlobalStyle() {
       .mg-result h3 { margin: 0; font-family: 'Araea', 'Noto Sans KR', sans-serif; font-weight: 700; font-size: 1.4rem; }
       .mg-result p { margin: 0; }
       .araea-btn { align-self: flex-start; margin-top: 0.35rem; border: 2px solid var(--accent-500); background: var(--white); color: var(--accent-600); border-radius: 999px; padding: 0.2rem 0.8rem; font-size: 0.85rem; font-weight: 700; cursor: pointer; }
+      .source-note { margin: 0.5rem 0 0; font-size: 0.72rem; line-height: 1.5; color: var(--ink-500); font-weight: 400; word-break: break-all; }
+      .source-note a { color: inherit; text-decoration: underline; }
       .araea-row { align-self: flex-start; margin-top: 0.35rem; width: 100%; }
       .araea-line { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
       .araea-line .araea-btn { margin-top: 0; }
@@ -1455,6 +1457,15 @@ function HomeView({ todayWord, approvedCount, todayProverb, onShuffleProverb, on
         <div className="today-card">
           <p>아직 등록된 문장이 없어요.</p>
         </div>
+      )}
+      {todayProverb && (
+        <p className="source-note">
+          출처 -[제주특별자치도], [제주특별자치도-문화/역사/체육-제주어(
+          <a href="https://www.jeju.go.kr/culture/dialect/proverb/proverbDictionary.htm?indexP=" target="_blank" rel="noopener noreferrer">
+            https://www.jeju.go.kr/culture/dialect/proverb/proverbDictionary.htm?indexP=
+          </a>
+          )]
+        </p>
       )}
 
       <div className="intro">
