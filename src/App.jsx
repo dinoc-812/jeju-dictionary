@@ -1750,7 +1750,7 @@ function AdminProverbsView({ proverbs, onAdd, onUpdate, onDelete }) {
       return;
     }
     setError('');
-    onAdd({ jeju: jeju.trim(), meaning: meaning.trim() });
+    onAdd({ jeju: finalizeAraea(jeju).trim(), meaning: meaning.trim() });
     setJeju('');
     setMeaning('');
   }
@@ -1763,7 +1763,7 @@ function AdminProverbsView({ proverbs, onAdd, onUpdate, onDelete }) {
 
   function saveEdit(id) {
     if (!editJeju.trim() || !editMeaning.trim()) return;
-    onUpdate(id, { jeju: editJeju.trim(), meaning: editMeaning.trim() });
+    onUpdate(id, { jeju: finalizeAraea(editJeju).trim(), meaning: editMeaning.trim() });
     setEditingId(null);
   }
 
@@ -1771,7 +1771,7 @@ function AdminProverbsView({ proverbs, onAdd, onUpdate, onDelete }) {
     <div className="pending-list">
       <div className="notice-card">
         <p className="form-subtitle" style={{ marginTop: 0 }}>새 문장 추가</p>
-        <TextArea label="문장 (제주어)" required value={jeju} onChange={setJeju} accent="jeju" />
+        <TextArea label="문장 (제주어)" required value={jeju} onChange={setJeju} accent="jeju" araea />
         <TextArea label="뜻" required value={meaning} onChange={setMeaning} />
         {error && <p className="form-error">{error}</p>}
         <div className="form-actions">
@@ -1783,7 +1783,7 @@ function AdminProverbsView({ proverbs, onAdd, onUpdate, onDelete }) {
         <div key={p.id} className="pending-item">
           {editingId === p.id ? (
             <>
-              <TextArea label="문장 (제주어)" required value={editJeju} onChange={setEditJeju} accent="jeju" />
+              <TextArea label="문장 (제주어)" required value={editJeju} onChange={setEditJeju} accent="jeju" araea />
               <TextArea label="뜻" required value={editMeaning} onChange={setEditMeaning} />
               <div className="form-actions">
                 <button type="button" className="btn-primary" onClick={() => saveEdit(p.id)}>저장하기</button>
