@@ -15,9 +15,9 @@ const PX_PER_MM = 300 / 25.4;
 const CARD_W = Math.round(CARD_W_MM * PX_PER_MM); // 756
 const CARD_H = Math.round(CARD_H_MM * PX_PER_MM); // 1051
 
-const FONT_BODY = '"Noto Sans KR", "Noto Sans CJK KR", "Malgun Gothic", "Apple SD Gothic Neo", sans-serif';
-const FONT_TITLE = FONT_BODY; // 낱말·큰 글씨는 굵은 Noto Sans KR(900)로 통통하게 써요. (머리띠 제목만 Jua)
-const FONT_BRAND = `"Jua", ${FONT_BODY}`;
+const FONT_BODY = '"Araea", "Noto Sans KR", "Noto Sans CJK KR", "Malgun Gothic", "Apple SD Gothic Neo", sans-serif';
+const FONT_TITLE = FONT_BODY; // 낱말·큰 글씨는 굵은 Noto Sans KR(700)로 통통하게 써요. 
+const FONT_BRAND = `"Araea", "Noto Sans KR", "Noto Sans CJK KR", sans-serif`;
 
 const COLOR = {
   paper: '#E8F7E4', // 카드 바탕(연한 초록)
@@ -124,7 +124,7 @@ function drawChip(ctx, x, y, w, h, label, bg, fontSize, dry) {
     roundRectPath(ctx, x, y, w, h, h / 2);
     ctx.fill();
     ctx.fillStyle = COLOR.white;
-    ctx.font = `900 ${fontSize}px ${FONT_BODY}`;
+    ctx.font = `700 ${fontSize}px ${FONT_BODY}`;
     ctx.textBaseline = 'middle';
     ctx.textAlign = 'center';
     ctx.fillText(label, x + w / 2, y + h / 2 + 1);
@@ -215,9 +215,9 @@ function drawCardBody(ctx, item, img, scale, dry, imgH) {
     const isChuja = item.language === 'chuja';
     const chipBg = isChuja ? COLOR.chujaChip : COLOR.jejuChip;
     const textColor = isChuja ? COLOR.chuja : COLOR.jeju;
-    drawTextBox(isChuja ? '추자생활언어' : '제주어', chipBg, isChuja ? 180 : 110, item.text, Math.round(52 * scale), textColor, 5, 900);
+    drawTextBox(isChuja ? '추자생활언어' : '제주어', chipBg, isChuja ? 180 : 110, item.text, Math.round(52 * scale), textColor, 5, 700);
     if (item.meaning) {
-      drawTextBox('뜻', COLOR.standardChip, 70, item.meaning, Math.round(34 * scale), COLOR.ink, 6, 700);
+      drawTextBox('뜻', COLOR.standardChip, 70, item.meaning, Math.round(34 * scale), COLOR.ink, 6, 400);
     }
     return y;
   }
@@ -235,9 +235,9 @@ function drawCardBody(ctx, item, img, scale, dry, imgH) {
     const chipH = Math.round(40 * scale);
     drawChip(ctx, PAD, y + Math.round((rowH - chipH) / 2) - 4, chipW, chipH, label, chipBg, Math.round(23 * scale), dry);
     const text = String(value || '');
-    const size = fitFontSize(ctx, text, FONT_TITLE, 900, Math.round(60 * scale), 26, CARD_W - PAD - textX);
+    const size = fitFontSize(ctx, text, FONT_TITLE, 700, Math.round(60 * scale), 26, CARD_W - PAD - textX);
     if (!dry) {
-      ctx.font = `900 ${size}px ${FONT_TITLE}`;
+      ctx.font = `700 ${size}px ${FONT_TITLE}`;
       ctx.fillStyle = textColor;
       ctx.textBaseline = 'middle';
       ctx.textAlign = 'left';
@@ -255,7 +255,7 @@ function drawCardBody(ctx, item, img, scale, dry, imgH) {
   exRows.forEach(([label, text, chipBg]) => {
     ctx.font = `700 ${Math.round(21 * scale)}px ${FONT_BODY}`;
     const labelW = Math.round(ctx.measureText(label).width + 40);
-    drawTextBox(label, chipBg, labelW, text, Math.round(32 * scale), COLOR.ink, 4, 700);
+    drawTextBox(label, chipBg, labelW, text, Math.round(32 * scale), COLOR.ink, 4, 400);
   });
   return y;
 }
@@ -298,7 +298,7 @@ function renderCard(canvas, item, img) {
     ctx.fill();
   }
   ctx.fillStyle = COLOR.white;
-  ctx.font = `400 36px ${FONT_BRAND}`;
+  ctx.font = `700 36px ${FONT_BRAND}`;
   ctx.textBaseline = 'middle';
   ctx.textAlign = 'center';
   ctx.fillText('추자초 5학년 말바당 사전', CARD_W / 2, 56);
@@ -325,11 +325,11 @@ async function ensureFonts(items) {
   try {
     await withTimeout(
       Promise.all([
-        document.fonts.load('34px "Jua"', sample),
         document.fonts.load('400 28px "Noto Sans KR"', sample),
-        document.fonts.load('500 28px "Noto Sans KR"', sample),
         document.fonts.load('700 22px "Noto Sans KR"', sample),
-        document.fonts.load('900 22px "Noto Sans KR"', sample),
+        // 아래아(ᆞ) 글자용 글꼴: 옛한글 자모가 들어 있을 때만 내려받아요.
+        document.fonts.load('400 28px "Araea"', sample + ' \u1106\u119E'),
+        document.fonts.load('700 28px "Araea"', sample + ' \u1106\u119E'),
       ]),
       5000
     );

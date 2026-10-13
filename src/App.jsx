@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useLayoutEffect } from 'react';
 import { Home, BookOpen, PenSquare, Sparkles, ChevronRight, Shuffle, Mic, Square, MessageSquare, Trophy, FileDown, Gamepad2 } from 'lucide-react';
 import {
   dbGetWords,
@@ -19,6 +19,7 @@ import {
 } from './firebase';
 import { kstDateString, buildQuizQuestion, getQuizUserKey, quizAttemptId } from './quiz';
 import { makeCardsPdf, downloadBlob } from './cardPdf';
+import { AR, normalizeAraea, finalizeAraea } from './jejuInput';
 
 // ==================== 상수 ====================
 const NICK_KEY = 'jejumal:nickname'; // 닉네임은 각자 기기(브라우저)에만 저장돼요.
@@ -174,7 +175,7 @@ async function getOrPickTodayProverb(proverbs) {
 function GlobalStyle() {
   return (
     <style>{`
-      @import url('https://fonts.googleapis.com/css2?family=Jua&family=Noto+Sans+KR:wght@400;500;700;900&display=swap');
+      @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700&display=swap');
 
       .jejumal-app {
         --basalt-900: #4B3F72;
@@ -199,13 +200,17 @@ function GlobalStyle() {
         --danger-border: #FFD1D1;
         --line: #FFE3B0;
         --white: #FFFFFF;
-        font-family: 'Noto Sans KR', sans-serif;
+        font-family: 'Araea', 'Noto Sans KR', sans-serif;
+        font-weight: 400;
         color: var(--ink-800);
         background: var(--paper-50);
         min-height: 100vh;
         display: flex;
         flex-direction: column;
       }
+      /* 아래아(ᆞ)가 들어간 글자를 제대로 보여주는 글꼴 (옛한글 자모 영역에서만 쓰여요) */
+      @font-face { font-family: 'Araea'; font-weight: 400; src: url('/fonts/araea-400.woff') format('woff'); unicode-range: U+1100-11FF, U+A960-A97F, U+D7B0-D7FF; font-display: swap; }
+      @font-face { font-family: 'Araea'; font-weight: 700 900; src: url('/fonts/araea-700.woff') format('woff'); unicode-range: U+1100-11FF, U+A960-A97F, U+D7B0-D7FF; font-display: swap; }
       .jejumal-app * { box-sizing: border-box; }
       .jejumal-app button, .jejumal-app input, .jejumal-app textarea {
         font-family: inherit;
@@ -234,8 +239,7 @@ function GlobalStyle() {
         border-bottom: 3px solid var(--line);
       }
       .brand {
-        font-family: 'Jua', sans-serif;
-        font-weight: 400;
+        font-family: 'Araea', 'Noto Sans KR', sans-serif; font-weight: 700;
         font-size: 1.55rem;
         margin: 0 0 0.9rem;
         color: var(--accent-600);
@@ -244,14 +248,14 @@ function GlobalStyle() {
       .nav-tab {
         display: inline-flex; align-items: center; gap: 0.35rem;
         background: var(--paper-100); border: none; color: var(--ink-500); opacity: 1;
-        padding: 0.5rem 0.95rem; border-radius: 999px; cursor: pointer; font-weight: 500; font-size: 0.9rem;
+        padding: 0.5rem 0.95rem; border-radius: 999px; cursor: pointer; font-weight: 700; font-size: 0.9rem;
       }
       .nav-tab.active { background: var(--accent-500); color: var(--white); }
       .app-main { flex: 1; max-width: 760px; width: 100%; margin: 0 auto; padding: 2rem 1.25rem 3rem; }
-      .view-title { font-family: 'Jua', sans-serif; font-weight: 400; font-size: 1.6rem; margin: 0 0 0.5rem; }
+      .view-title { font-family: 'Araea', 'Noto Sans KR', sans-serif; font-weight: 700; font-size: 1.6rem; margin: 0 0 0.5rem; }
       .view-desc { color: var(--ink-500); margin: 0 0 1.25rem; line-height: 1.6; }
       .eyebrow-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 0.5rem; }
-      .eyebrow { display: flex; align-items: center; gap: 0.35rem; color: var(--accent-600); margin: 0; font-weight: 500; }
+      .eyebrow { display: flex; align-items: center; gap: 0.35rem; color: var(--accent-600); margin: 0; font-weight: 400; }
       .shuffle-btn {
         display: inline-flex; align-items: center; justify-content: center;
         width: 32px; height: 32px; border-radius: 999px; border: 2px solid var(--accent-500);
@@ -260,21 +264,21 @@ function GlobalStyle() {
       .shuffle-btn:hover { background: var(--accent-100); }
       .today-card { border: none; border-radius: 24px; padding: 2rem 1.75rem; background: var(--accent-100); box-shadow: 0 6px 0 var(--accent-500); }
       .today-hero {
-        font-family: 'Jua', sans-serif; font-weight: 400; font-size: clamp(2.2rem, 7vw, 3.2rem);
+        font-family: 'Araea', 'Noto Sans KR', sans-serif; font-weight: 700; font-size: clamp(2.2rem, 7vw, 3.2rem);
         color: var(--accent-600); margin: 0 0 0.5rem; line-height: 1.15;
       }
       .today-hero.proverb { font-size: clamp(1.4rem, 5vw, 2.1rem); line-height: 1.4; }
-      .today-sub { color: var(--ink-500); margin: 0 0 1rem; font-weight: 500; }
+      .today-sub { color: var(--ink-500); margin: 0 0 1rem; font-weight: 400; }
       .today-image img { max-width: 100%; border-radius: 16px; margin-bottom: 1rem; display: block; }
       .today-example {
         font-style: italic; color: var(--ink-800); border-left: 3px solid var(--sea-600);
         padding-left: 0.75rem; margin: 0 0 1rem;
       }
       .intro { margin-top: 1.75rem; line-height: 1.7; }
-      .stat { color: var(--sea-700); font-weight: 500; }
+      .stat { color: var(--sea-700); font-weight: 400; }
       .chip {
         display: inline-block; font-size: 0.75rem; padding: 0.2rem 0.6rem;
-        border-radius: 999px; margin-right: 0.4rem; font-weight: 500;
+        border-radius: 999px; margin-right: 0.4rem; font-weight: 400;
       }
       .chip-standard { background: var(--basalt-900); color: var(--white); }
       .chip-jeju { background: var(--tangerine-500); color: var(--white); }
@@ -288,16 +292,16 @@ function GlobalStyle() {
       .sort-tabs, .admin-tabs { display: flex; gap: 0.4rem; margin-bottom: 1rem; flex-wrap: wrap; }
       .sort-tab {
         border: 2px solid var(--line); background: var(--white); padding: 0.45rem 0.9rem;
-        border-radius: 999px; cursor: pointer; color: var(--ink-500); font-size: 0.85rem; font-weight: 500;
+        border-radius: 999px; cursor: pointer; color: var(--ink-500); font-size: 0.85rem; font-weight: 400;
       }
       .sort-tab.active { border-color: var(--sea-600); color: var(--white); background: var(--sea-600); }
       .dict-controls { display: flex; flex-direction: column; gap: 0.5rem; margin-bottom: 1rem; }
       .dict-controls-row { display: flex; gap: 0.4rem; flex-wrap: wrap; align-items: center; }
-      .dict-controls-label { font-size: 0.78rem; color: var(--ink-500); margin-right: 0.2rem; font-weight: 500; }
+      .dict-controls-label { font-size: 0.78rem; color: var(--ink-500); margin-right: 0.2rem; font-weight: 400; }
       .word-list { display: flex; flex-direction: column; gap: 0.6rem; }
       .word-list-header {
         display: grid; grid-template-columns: 1fr 1fr 1fr auto; gap: 0.5rem;
-        padding: 0 0.25rem 0.5rem; font-size: 0.78rem; color: var(--ink-500); font-weight: 500;
+        padding: 0 0.25rem 0.5rem; font-size: 0.78rem; color: var(--ink-500); font-weight: 400;
       }
       .word-row { border-bottom: none; }
       .word-row-head {
@@ -308,7 +312,7 @@ function GlobalStyle() {
       .word-row-head:hover { border-color: var(--accent-500); }
       .word-row-main { display: grid; grid-template-columns: 1fr 1fr 1fr auto; gap: 0.5rem; align-items: center; }
       .word-row-main.expression-row-main { grid-template-columns: 1fr auto; }
-      .word-value { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.95rem; font-weight: 500; }
+      .word-value { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.95rem; font-weight: 700; }
       .word-value.standard { color: var(--ink-800); }
       .word-value.jeju { color: var(--tangerine-600); }
       .word-value.chuja { color: var(--sea-700); }
@@ -327,7 +331,7 @@ function GlobalStyle() {
       .detail-legend { margin: 0 0 0.7rem; }
       .detail-word-line {
         display: flex; align-items: baseline; gap: 0.6rem; flex-wrap: wrap;
-        font-family: 'Jua', sans-serif; font-weight: 400; font-size: 1.6rem; margin: 0;
+        font-family: 'Araea', 'Noto Sans KR', sans-serif; font-weight: 700; font-size: 1.6rem; margin: 0;
       }
       .detail-word-line .sep { color: var(--ink-500); font-size: 1rem; }
       .detail-word-line .standard { color: var(--ink-800); }
@@ -335,7 +339,7 @@ function GlobalStyle() {
       .detail-word-line .chuja { color: var(--sea-700); }
       .detail-extra-line {
         display: flex; align-items: center; gap: 0.5rem; font-size: 0.95rem; color: var(--canola-600);
-        font-weight: 500; margin: 0.85rem 0 0; padding-top: 0.85rem; border-top: 1px solid var(--paper-100);
+        font-weight: 400; margin: 0.85rem 0 0; padding-top: 0.85rem; border-top: 1px solid var(--paper-100);
       }
       .detail-meaning {
         color: var(--ink-500); margin: 0.85rem 0 0; padding-top: 0.85rem;
@@ -359,8 +363,8 @@ function GlobalStyle() {
       .word-form { display: flex; flex-direction: column; gap: 0.75rem; margin-top: 0.5rem; }
       .form-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.6rem; }
       @media (max-width: 640px) { .form-grid { grid-template-columns: 1fr; } }
-      .form-subtitle { margin: 0.4rem 0 -0.2rem; color: var(--ink-500); font-size: 0.85rem; font-weight: 500; }
-      .form-error { color: var(--danger-600); font-size: 0.85rem; margin: 0; font-weight: 500; }
+      .form-subtitle { margin: 0.4rem 0 -0.2rem; color: var(--ink-500); font-size: 0.85rem; font-weight: 400; }
+      .form-error { color: var(--danger-600); font-size: 0.85rem; margin: 0; font-weight: 400; }
       .form-actions { display: flex; gap: 0.6rem; flex-wrap: wrap; }
       .field { display: flex; flex-direction: column; gap: 0.3rem; font-size: 0.85rem; color: var(--ink-500); }
       .field-input, .field-textarea {
@@ -373,7 +377,7 @@ function GlobalStyle() {
       .extra-region-tabs { display: flex; gap: 0.4rem; flex-wrap: wrap; }
       .extra-region-tab {
         border: 2px solid var(--line); background: var(--white); padding: 0.45rem 0.9rem;
-        border-radius: 999px; cursor: pointer; color: var(--ink-500); font-size: 0.85rem; font-weight: 500;
+        border-radius: 999px; cursor: pointer; color: var(--ink-500); font-size: 0.85rem; font-weight: 400;
       }
       .extra-region-tab.active { border-color: var(--canola-600); color: var(--ink-800); background: var(--canola-400); }
       .extra-region-block { display: flex; flex-direction: column; gap: 0.75rem; padding: 0.9rem; border: 2px dashed var(--line); border-radius: 16px; }
@@ -388,7 +392,7 @@ function GlobalStyle() {
       .audio-preview { display: flex; flex-wrap: wrap; align-items: center; gap: 0.6rem; margin-top: 0.2rem; }
       .audio-preview audio { max-width: 100%; height: 36px; }
       .btn-primary, .btn-secondary, .btn-ghost {
-        border-radius: 999px; padding: 0.6rem 1.3rem; cursor: pointer; font-weight: 500; border: 2px solid transparent;
+        border-radius: 999px; padding: 0.6rem 1.3rem; cursor: pointer; font-weight: 400; border: 2px solid transparent;
         transition: transform 0.05s ease;
       }
       .btn-primary { background: var(--accent-500); color: var(--white); box-shadow: 0 4px 0 var(--accent-600); }
@@ -399,7 +403,7 @@ function GlobalStyle() {
       .btn-ghost:hover { border-color: var(--accent-500); }
       .btn-ghost.danger { color: var(--danger-600); border-color: var(--danger-border); }
       .comments { display: flex; flex-direction: column; gap: 0.6rem; }
-      .comments-title { margin: 0; font-weight: 500; }
+      .comments-title { margin: 0; font-weight: 400; }
       .comment-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 0.6rem; }
       .comment-item { background: var(--white); border: 2px solid var(--line); border-radius: 14px; padding: 0.6rem 0.75rem; }
       .comment-meta { display: flex; justify-content: space-between; font-size: 0.78rem; color: var(--ink-500); margin-bottom: 0.2rem; }
@@ -414,13 +418,13 @@ function GlobalStyle() {
         border: 2px solid var(--line); border-radius: 18px; padding: 0.9rem 1rem;
         background: var(--white); display: flex; flex-direction: column; gap: 0.5rem;
       }
-      .pending-type { margin: 0; font-size: 0.78rem; color: var(--sea-700); font-weight: 500; }
+      .pending-type { margin: 0; font-size: 0.78rem; color: var(--sea-700); font-weight: 400; }
       .pending-fields { display: flex; gap: 1rem; flex-wrap: wrap; align-items: center; font-size: 0.92rem; }
       .pending-image-preview img { max-width: 140px; border-radius: 12px; display: block; }
       .stats-list { display: flex; flex-direction: column; gap: 0.6rem; }
       .stats-row { display: grid; grid-template-columns: 22px minmax(60px, 110px) 1fr 44px; gap: 0.7rem; align-items: center; }
-      .stats-rank { font-weight: 500; color: var(--ink-500); text-align: center; }
-      .stats-name { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .stats-rank { font-weight: 400; color: var(--ink-500); text-align: center; }
+      .stats-name { font-weight: 400; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       .stats-bar-track { background: var(--paper-100); border-radius: 999px; height: 12px; overflow: hidden; }
       .stats-bar-fill { background: var(--accent-500); height: 100%; border-radius: 999px; }
       .stats-count { text-align: right; color: var(--ink-500); font-size: 0.85rem; }
@@ -430,13 +434,13 @@ function GlobalStyle() {
       .pager { display: flex; align-items: center; justify-content: center; gap: 0.5rem; margin-top: 1.25rem; flex-wrap: wrap; }
       .pager > button {
         border: 2px solid var(--line); background: var(--white); border-radius: 999px;
-        padding: 0.4rem 0.9rem; cursor: pointer; color: var(--ink-800); font-weight: 500;
+        padding: 0.4rem 0.9rem; cursor: pointer; color: var(--ink-800); font-weight: 400;
       }
       .pager > button:disabled { opacity: 0.4; cursor: default; }
       .pager-numbers { display: flex; align-items: center; gap: 0.25rem; }
       .pager-number {
         min-width: 2.2rem; height: 2.2rem; border: 2px solid var(--line); background: var(--white);
-        border-radius: 999px; cursor: pointer; color: var(--ink-800); font-weight: 500; font-size: 0.85rem;
+        border-radius: 999px; cursor: pointer; color: var(--ink-800); font-weight: 400; font-size: 0.85rem;
       }
       .pager-number.active { border-color: var(--accent-500); background: var(--accent-500); color: var(--white); }
       .pager-dots { color: var(--ink-500); font-size: 0.85rem; padding: 0 0.15rem; }
@@ -454,7 +458,7 @@ function GlobalStyle() {
         background: var(--white); border-radius: 20px; padding: 1.5rem 1.4rem; max-width: 380px; width: 100%;
         box-shadow: 0 10px 40px rgba(0,0,0,0.25); display: flex; flex-direction: column; gap: 1.1rem;
       }
-      .modal-box p { margin: 0; line-height: 1.6; font-weight: 500; }
+      .modal-box p { margin: 0; line-height: 1.6; font-weight: 400; }
       .modal-actions { display: flex; gap: 0.6rem; flex-wrap: wrap; justify-content: flex-end; }
       .card-toolbar {
         display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap;
@@ -476,13 +480,13 @@ function GlobalStyle() {
       .quiz-card { border: 2px solid var(--line); border-radius: 20px; background: var(--white); padding: 1.3rem 1.2rem; display: flex; flex-direction: column; gap: 0.9rem; }
       .quiz-date { margin: 0; font-size: 0.8rem; color: var(--ink-500); }
       .quiz-prompt { margin: 0; color: var(--ink-500); font-size: 0.9rem; }
-      .quiz-word { font-family: 'Jua', sans-serif; font-size: 2.1rem; margin: 0; color: var(--tangerine-600); word-break: keep-all; }
+      .quiz-word { font-family: 'Araea', 'Noto Sans KR', sans-serif; font-weight: 700; font-size: 2.1rem; margin: 0; color: var(--tangerine-600); word-break: keep-all; }
       .quiz-word.chuja { color: var(--sea-700); }
       .quiz-example { margin: 0; background: var(--paper-100); border-radius: 12px; padding: 0.7rem 0.9rem; line-height: 1.6; }
       .quiz-choices { display: flex; flex-direction: column; gap: 0.6rem; }
       .quiz-choice {
         text-align: left; background: var(--white); border: 2px solid var(--line); border-radius: 14px;
-        padding: 0.8rem 1rem; cursor: pointer; font-weight: 500; color: var(--ink-800); font-size: 1.05rem;
+        padding: 0.8rem 1rem; cursor: pointer; font-weight: 400; color: var(--ink-800); font-size: 1.05rem;
       }
       .quiz-choice:hover:not(:disabled) { border-color: var(--accent-500); }
       .quiz-choice:disabled { cursor: default; }
@@ -497,7 +501,7 @@ function GlobalStyle() {
       .mg-group { display: flex; flex-direction: column; gap: 0.5rem; }
       .mg-label { font-weight: 700; margin: 0; }
       .mg-options { display: flex; gap: 0.5rem; flex-wrap: wrap; }
-      .mg-option { border: 2px solid var(--line); background: var(--white); border-radius: 14px; padding: 0.55rem 1rem; cursor: pointer; font-weight: 500; color: var(--ink-800); }
+      .mg-option { border: 2px solid var(--line); background: var(--white); border-radius: 14px; padding: 0.55rem 1rem; cursor: pointer; font-weight: 400; color: var(--ink-800); }
       .mg-option.active { border-color: var(--accent-500); background: var(--accent-500); color: var(--white); }
       .mg-option:disabled { opacity: 0.4; cursor: default; }
       .mg-bar { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; margin-bottom: 0.8rem; }
@@ -512,10 +516,10 @@ function GlobalStyle() {
       .mg-inner { position: absolute; inset: 0; transform-style: preserve-3d; transition: transform 0.35s; }
       .mg-card.up .mg-inner { transform: rotateY(180deg); }
       .mg-face { position: absolute; inset: 0; backface-visibility: hidden; -webkit-backface-visibility: hidden; border-radius: 12px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 0.25rem; padding: 0.2rem; border: 3px solid var(--white); box-shadow: 0 3px 0 rgba(0,0,0,0.15); }
-      .mg-back { background: var(--accent-500); color: var(--white); font-family: 'Jua', sans-serif; font-size: 1.6rem; background-image: radial-gradient(rgba(255,255,255,0.25) 3px, transparent 4px); background-size: 16px 16px; }
+      .mg-back { background: var(--accent-500); color: var(--white); font-family: 'Araea', 'Noto Sans KR', sans-serif; font-weight: 700; font-size: 1.6rem; background-image: radial-gradient(rgba(255,255,255,0.25) 3px, transparent 4px); background-size: 16px 16px; }
       .mg-front { transform: rotateY(180deg); background: var(--white); border-color: var(--line); word-break: keep-all; text-align: center; line-height: 1.25; }
       .mg-front .mg-kind { font-size: 0.62rem; font-weight: 700; color: var(--white); border-radius: 999px; padding: 0.05rem 0.5rem; }
-      .mg-front .mg-text { font-weight: 900; font-size: 1.05rem; }
+      .mg-front .mg-text { font-weight: 700; font-size: 1.05rem; }
       .mg-front.is-standard .mg-kind { background: #5B6CC4; } .mg-front.is-standard .mg-text { color: #2C4A8A; }
       .mg-front.is-jeju .mg-kind { background: #FF8A3D; } .mg-front.is-jeju .mg-text { color: #E8731A; }
       .mg-front.owned { border-color: var(--pc); background: var(--pcbg); }
@@ -541,8 +545,18 @@ function GlobalStyle() {
         .mg-owner { font-size: 0.55rem; top: -4px; right: -4px; }
       }
       .mg-result { border: 3px solid var(--accent-500); border-radius: 18px; background: var(--white); padding: 1rem 1.2rem; margin-bottom: 0.9rem; display: flex; flex-direction: column; gap: 0.6rem; }
-      .mg-result h3 { margin: 0; font-family: 'Jua', sans-serif; font-weight: 400; font-size: 1.4rem; }
+      .mg-result h3 { margin: 0; font-family: 'Araea', 'Noto Sans KR', sans-serif; font-weight: 700; font-size: 1.4rem; }
       .mg-result p { margin: 0; }
+      .araea-btn { align-self: flex-start; margin-top: 0.35rem; border: 2px solid var(--accent-500); background: var(--white); color: var(--accent-600); border-radius: 999px; padding: 0.2rem 0.8rem; font-size: 0.85rem; font-weight: 700; cursor: pointer; }
+      .araea-row { align-self: flex-start; margin-top: 0.35rem; width: 100%; }
+      .araea-line { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+      .araea-line .araea-btn { margin-top: 0; }
+      .araea-hint { font-size: 0.75rem; color: var(--ink-500); font-weight: 400; }
+      .araea-help-btn { width: 1.5rem; height: 1.5rem; border-radius: 50%; border: 2px solid var(--accent-500); background: var(--white); color: var(--accent-600); font-weight: 700; font-size: 0.8rem; line-height: 1; cursor: pointer; padding: 0; }
+      .araea-help { margin-top: 0.4rem; background: var(--accent-100); border-radius: 12px; padding: 0.6rem 0.8rem; font-size: 0.82rem; line-height: 1.55; color: var(--ink-800); font-weight: 400; cursor: default; }
+      .araea-help p { margin: 0 0 0.25rem; }
+      .araea-help p:last-child { margin-bottom: 0; }
+      .araea-btn:hover { background: var(--accent-100); }
       .app-footer { text-align: center; padding: 1.25rem; color: var(--ink-500); font-size: 0.8rem; border-top: 3px solid var(--line); }
     `}</style>
   );
@@ -607,7 +621,89 @@ function Pager({ page, totalPages, onChange }) {
   );
 }
 
-function Field({ label, value, onChange, required, placeholder, accent, type, onEnter }) {
+// 아래아(ᆞ) 입력 버튼이 붙는 입력칸을 위한 도우미예요. (제주어 낱말·표현 칸에만 써요)
+function useAraeaInput(onChange, enabled) {
+  const ref = useRef(null);
+  const composing = useRef(false);
+  const caret = useRef(null);
+  useLayoutEffect(() => {
+    if (caret.current != null && ref.current) {
+      try {
+        ref.current.setSelectionRange(caret.current, caret.current);
+      } catch (e) {
+        // 커서 위치를 못 맞춰도 입력에는 문제없어요
+      }
+      caret.current = null;
+    }
+  });
+  function apply(el) {
+    const r = normalizeAraea(el.value, el.selectionStart == null ? el.value.length : el.selectionStart);
+    if (r.text !== el.value) {
+      caret.current = r.caret;
+      onChange(r.text);
+      return true;
+    }
+    return false;
+  }
+  const extra = enabled
+    ? {
+        onCompositionStart: () => { composing.current = true; },
+        onCompositionEnd: (e) => { composing.current = false; apply(e.target); },
+        onBlur: (e) => { apply(e.target); },
+      }
+    : {};
+  function handleChange(e) {
+    if (enabled && !composing.current && apply(e.target)) return;
+    onChange(e.target.value);
+  }
+  function insert() {
+    const el = ref.current;
+    if (!el) return;
+    el.focus();
+    const s = el.selectionStart == null ? el.value.length : el.selectionStart;
+    const e = el.selectionEnd == null ? s : el.selectionEnd;
+    const r = normalizeAraea(el.value.slice(0, s) + AR + el.value.slice(e), s + 1);
+    caret.current = r.caret;
+    onChange(r.text);
+  }
+  return { ref, extra, handleChange, insert };
+}
+
+function AraeaButton({ onInsert }) {
+  const [help, setHelp] = useState(false);
+  return (
+    <div className="araea-row">
+      <div className="araea-line">
+        <button
+          type="button"
+          className="araea-btn"
+          onPointerDown={(e) => e.preventDefault()} // 눌러도 입력칸의 포커스(키보드)가 유지되게
+          onClick={onInsert}
+        >
+          ㆍ 아래아 넣기
+        </button>
+        <button
+          type="button"
+          className="araea-help-btn"
+          aria-expanded={help}
+          aria-label="아래아 입력 도움말"
+          onPointerDown={(e) => e.preventDefault()}
+          onClick={() => setHelp((v) => !v)}
+        >
+          ?
+        </button>
+      </div>
+      {help && (
+        <div className="araea-help" onClick={(e) => e.preventDefault()}>
+          아래아 밑에 받침을 넣을 때는 받침으로 넣고 싶은 자음을 두 번 누르세요.
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Field({ label, value, onChange, required, placeholder, accent, type, onEnter, araea }) {
+  const a = useAraeaInput(onChange, !!araea);
   return (
     <label className={`field ${accent ? 'accent-' + accent : ''}`}>
       <span className="field-label">
@@ -615,27 +711,32 @@ function Field({ label, value, onChange, required, placeholder, accent, type, on
         {required && <span className="req">*</span>}
       </span>
       <input
+        ref={a.ref}
         className="field-input"
         type={type || 'text'}
         value={value}
         placeholder={placeholder}
-        onChange={(e) => onChange(e.target.value)}
+        onChange={a.handleChange}
+        {...a.extra}
         onKeyDown={(e) => {
           if (e.key === 'Enter' && onEnter) onEnter();
         }}
       />
+      {araea && <AraeaButton onInsert={a.insert} />}
     </label>
   );
 }
 
-function TextArea({ label, value, onChange, accent, required }) {
+function TextArea({ label, value, onChange, accent, required, araea }) {
+  const a = useAraeaInput(onChange, !!araea);
   return (
     <label className={`field ${accent ? 'accent-' + accent : ''}`}>
       <span className="field-label">
         {label}
         {required && <span className="req">*</span>}
       </span>
-      <textarea className="field-textarea" rows={2} value={value} onChange={(e) => onChange(e.target.value)} />
+      <textarea ref={a.ref} className="field-textarea" rows={2} value={value} onChange={a.handleChange} {...a.extra} />
+      {araea && <AraeaButton onInsert={a.insert} />}
     </label>
   );
 }
@@ -852,11 +953,11 @@ function WordForm({ initial, defaultNickname, showNickname = true, submitLabel, 
     setError('');
     onSubmit({
       standard: standard.trim(),
-      jeju: jeju.trim(),
+      jeju: finalizeAraea(jeju.trim()),
       chuja: chuja.trim(),
       meaning: meaning.trim(),
       imageUrl: imageUrl.trim(),
-      examples: { jeju: exJeju.trim(), chuja: exChuja.trim() },
+      examples: { jeju: finalizeAraea(exJeju.trim()), chuja: exChuja.trim() },
       audio: { jeju: audioJeju, chuja: audioChuja },
       extraDialect: extraRegionKey
         ? {
@@ -874,7 +975,7 @@ function WordForm({ initial, defaultNickname, showNickname = true, submitLabel, 
     <div className="word-form">
       <div className="form-grid">
         <Field label="표준어" required value={standard} onChange={setStandard} />
-        <Field label="제주어" required value={jeju} onChange={setJeju} accent="jeju" />
+        <Field label="제주어" required value={jeju} onChange={setJeju} accent="jeju" araea />
         <Field label="추자생활언어" required value={chuja} onChange={setChuja} accent="chuja" />
       </div>
       <TextArea label="뜻 (선택)" value={meaning} onChange={setMeaning} />
@@ -931,7 +1032,7 @@ function WordForm({ initial, defaultNickname, showNickname = true, submitLabel, 
         </div>
       )}
       <p className="form-subtitle">사용 예시 (선택, 글과 음성으로 남길 수 있어요)</p>
-      <TextArea label="제주어 예문" value={exJeju} onChange={setExJeju} accent="jeju" />
+      <TextArea label="제주어 예문" value={exJeju} onChange={setExJeju} accent="jeju" araea />
       <AudioField label="제주어 예문 음성 (선택)" value={audioJeju} onChange={setAudioJeju} accent="jeju" />
       <TextArea label="추자생활언어 예문" value={exChuja} onChange={setExChuja} accent="chuja" />
       <AudioField label="추자생활언어 예문 음성 (선택)" value={audioChuja} onChange={setAudioChuja} accent="chuja" />
@@ -1000,7 +1101,7 @@ function ExpressionForm({ initial, defaultNickname, showNickname = true, submitL
     setError('');
     onSubmit({
       language,
-      text: text.trim(),
+      text: language === 'jeju' ? finalizeAraea(text.trim()) : text.trim(),
       meaning: meaning.trim(),
       imageUrl: imageUrl.trim(),
       audio: { main: audioMain },
@@ -1015,7 +1116,7 @@ function ExpressionForm({ initial, defaultNickname, showNickname = true, submitL
         <button type="button" className={`extra-region-tab ${language === 'jeju' ? 'active' : ''}`} onClick={() => setLanguage('jeju')}>제주어</button>
         <button type="button" className={`extra-region-tab ${language === 'chuja' ? 'active' : ''}`} onClick={() => setLanguage('chuja')}>추자생활언어</button>
       </div>
-      <TextArea label="문장" required value={text} onChange={setText} accent={accent} />
+      <TextArea label="문장" required value={text} onChange={setText} accent={accent} araea={language === 'jeju'} />
       <TextArea label="뜻" required value={meaning} onChange={setMeaning} />
       <div className="field">
         <span className="field-label">이미지 첨부 (선택)</span>
