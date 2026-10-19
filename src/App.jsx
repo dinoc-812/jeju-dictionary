@@ -361,15 +361,17 @@ function GlobalStyle() {
       .muted { color: var(--ink-500); }
       .muted.small { font-size: 0.8rem; }
       .word-form { display: flex; flex-direction: column; gap: 0.75rem; margin-top: 0.5rem; }
-      .form-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0.6rem; }
-      @media (max-width: 640px) { .form-grid { grid-template-columns: 1fr; } }
+      .form-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0.6rem; }
+      .form-grid > * { min-width: 0; }
+      @media (max-width: 720px) { .form-grid { grid-template-columns: minmax(0, 1fr); } }
       .form-subtitle { margin: 0.4rem 0 -0.2rem; color: var(--ink-500); font-size: 0.85rem; font-weight: 400; }
       .form-error { color: var(--danger-600); font-size: 0.85rem; margin: 0; font-weight: 400; }
       .form-actions { display: flex; gap: 0.6rem; flex-wrap: wrap; }
-      .field { display: flex; flex-direction: column; gap: 0.3rem; font-size: 0.85rem; color: var(--ink-500); }
+      .field { display: flex; flex-direction: column; gap: 0.3rem; font-size: 0.85rem; color: var(--ink-500); min-width: 0; }
       .field-input, .field-textarea {
         border: 2px solid var(--line); border-radius: 14px; padding: 0.6rem 0.75rem;
         background: var(--white); color: var(--ink-800); resize: vertical;
+        width: 100%; min-width: 0; max-width: 100%; box-sizing: border-box;
       }
       .accent-jeju .field-input, .accent-jeju .field-textarea { border-color: var(--tangerine-500); }
       .accent-chuja .field-input, .accent-chuja .field-textarea { border-color: var(--sea-600); }
