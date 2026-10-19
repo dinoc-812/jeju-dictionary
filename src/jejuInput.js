@@ -4,7 +4,9 @@
 //  - 아래아 글자는 완성형 글자가 없어서 "첫자음(U+1100~) + 아래아(U+119E) + 받침(U+11A8~)"처럼 자모를 이어 붙여 저장해요.
 //  - 글꼴은 public/fonts/araea-*.woff(Noto Sans CJK KR 일부)가 이 자모들을 글자 모양으로 합쳐서 보여줘요.
 
-export const AR = 'ᆞ';
+export const AR = '\u119E'; // ᆞ 아래아
+export const AR2 = '\u11A2'; // ᆢ 쌍아래아 (아래아 버튼을 연속으로 두 번)
+const isAr = (c) => c === AR || c === AR2;
 
 const INIT = {
   'ㄱ': 'ᄀ', 'ㄲ': 'ᄁ', 'ㄴ': 'ᄂ', 'ㄷ': 'ᄃ', 'ㄸ': 'ᄄ', 'ㄹ': 'ᄅ', 'ㅁ': 'ᄆ', 'ㅂ': 'ᄇ',
@@ -116,7 +118,14 @@ export function normalizeAraea(text, caret) {
       if (INIT[prev]) {
         out = out.slice(0, -prev.length) + INIT[prev] + AR;
         if (caret > pos) c += 1;
-      } else if (/[ᄀ-ᄒ]/.test(prev)) {
+      } else if (prev === AR && ch === AR) {
+        // 아래아 바로 뒤에 아래아를 또 넣으면 쌍아래아(ᆢ)
+        out = out.slice(0, -1) + AR2;
+        if (caret > pos) c -= 1;
+      } else if (prev === AR2) {
+        // 쌍아래아 뒤에는 더 붙이지 않아요.
+        if (caret > pos) c -= 1;
+      } else if (/[\u1100-\u1112]/.test(prev)) {
         out += AR;
       } else {
         out += 'ᄋ' + AR;
@@ -133,7 +142,7 @@ export function normalizeAraea(text, caret) {
   const chars = Array.from(before);
   let j = chars.length;
   while (j > 0 && chars.length - j < 8 && (/[ㄱ-ㅣ]/.test(chars[j - 1]) || isSyl(chars[j - 1]) || isJong(chars[j - 1]))) j--;
-  if (j > 0 && chars[j - 1] === AR && j < chars.length) {
+  if (j > 0 && isAr(chars[j - 1]) && j < chars.length) {
     const zone = chars.slice(j);
     const letters = [];
     zone.forEach((z) => letters.push(...decompose(z)));
