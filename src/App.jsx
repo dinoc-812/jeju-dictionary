@@ -550,6 +550,10 @@ function GlobalStyle() {
       .araea-btn { align-self: flex-start; margin-top: 0.35rem; border: 2px solid var(--accent-500); background: var(--white); color: var(--accent-600); border-radius: 999px; padding: 0.2rem 0.8rem; font-size: 0.85rem; font-weight: 700; cursor: pointer; }
       .source-note { margin: 0.5rem 0 0; font-size: 0.72rem; line-height: 1.5; color: var(--ink-500); font-weight: 400; word-break: break-all; }
       .source-note a { color: inherit; text-decoration: underline; }
+      .brand-link { cursor: pointer; }
+      .register-switch { display: flex; justify-content: center; gap: 0.5rem; margin: 0 auto 1.25rem; padding: 0.35rem; background: var(--accent-100); border-radius: 999px; width: fit-content; max-width: 100%; }
+      .register-switch-btn { border: none; background: transparent; color: var(--accent-700); font-weight: 700; font-size: 1.05rem; padding: 0.6rem 1.6rem; border-radius: 999px; cursor: pointer; }
+      .register-switch-btn.active { background: var(--accent-500); color: var(--white); box-shadow: 0 2px 0 var(--accent-700); }
       .araea-row { align-self: flex-start; margin-top: 0.35rem; width: 100%; }
       .araea-line { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
       .araea-line .araea-btn { margin-top: 0; }
@@ -697,7 +701,7 @@ function AraeaButton({ onInsert }) {
       </div>
       {help && (
         <div className="araea-help" onClick={(e) => e.preventDefault()}>
-          아래아 밑에 받침을 넣을 때는 받침으로 넣고 싶은 자음을 두 번 누르세요.
+          아래아 밑에 받침을 넣을 때는 받침 자음을 누르고 커서를 다른 곳으로 옮기세요.
         </div>
       )}
     </div>
@@ -1376,20 +1380,28 @@ function WordDetailPage({ word, isAdmin, onAddComment, onDeleteComment, onSugges
 
 // ==================== 헤더 ====================
 function Header({ view, setView }) {
+  const goHome = () => { setView('home'); if (typeof window !== 'undefined') window.scrollTo(0, 0); };
   const tabs = [
     ['home', '홈', Home],
-    ['dictionary', '사전', BookOpen],
-    ['register', '단어 등록', PenSquare],
-    ['registerExpression', '표현 등록', MessageSquare],
-    ['quiz', '퀴즈', Trophy],
+    ['dictionary', '사전 둘러보기', BookOpen],
+    ['register', '사전 등록', PenSquare],
+    ['quiz', '오늘의 퀴즈', Trophy],
     ['memory', '짝맞추기', Gamepad2],
   ];
   return (
     <header className="app-header">
-      <p className="brand">추자초 5학년 말바당 사전</p>
+      <p
+        className="brand brand-link"
+        role="link"
+        tabIndex={0}
+        onClick={goHome}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); goHome(); } }}
+      >
+        추자초 5학년 말바당 사전
+      </p>
       <nav className="nav-tabs">
         {tabs.map(([key, label, Icon]) => {
-          const active = view === key || (key === 'dictionary' && view === 'detail');
+          const active = view === key || (key === 'dictionary' && view === 'detail') || (key === 'register' && view === 'registerExpression');
           return (
             <button key={key} className={`nav-tab ${active ? 'active' : ''}`} onClick={() => setView(key)}>
               <Icon size={16} aria-hidden="true" />
@@ -1510,7 +1522,7 @@ function DictionaryView({
 
   return (
     <section className="view">
-      <h2 className="view-title">사전</h2>
+      <h2 className="view-title">사전 둘러보기</h2>
       <div className="card-toolbar">
         <span>
           카드로 만들 낱말/표현을 체크하세요. <strong>{validSelected.length}개 선택</strong>
@@ -1650,6 +1662,33 @@ function DuplicateConfirm({ onIgnore, onCancel }) {
         </div>
       </div>
     </div>
+  );
+}
+
+// ==================== 사전 등록 (낱말/표현 선택) ====================
+function RegisterHub({ children }) {
+  const [kind, setKind] = useState('word');
+  return (
+    <>
+      <div className="register-switch" role="tablist" aria-label="등록할 종류">
+        {[
+          ['word', '낱말 등록'],
+          ['expression', '표현 등록'],
+        ].map(([key, label]) => (
+          <button
+            key={key}
+            type="button"
+            role="tab"
+            aria-selected={kind === key}
+            className={`register-switch-btn ${kind === key ? 'active' : ''}`}
+            onClick={() => setKind(key)}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+      {children(kind)}
+    </>
   );
 }
 
@@ -1842,6 +1881,7 @@ function AdminView({
   const [confirmDeleteId, setConfirmDeleteId] = useState(null);
   const [adminKind, setAdminKind] = useState('all');
   const [adminPage, setAdminPage] = useState(1);
+  const [adminSort, setAdminSort] = useState('registered'); // registered(등록순) | standard(표준어 가나다순)
 
   async function startEdit(id) {
     if (onPrepareEdit) {
@@ -1881,7 +1921,16 @@ function AdminView({
   const approved = words.filter((w) => w.status === 'approved');
   const kindFilteredApproved = adminKind === 'all' ? approved : approved.filter((w) => itemKind(w) === adminKind);
   const filteredApproved = filterWords(kindFilteredApproved, query);
-  const { pageItems, totalPages, clampedPage } = paginate(filteredApproved, adminPage, PAGE_SIZE);
+  const sortedApproved = [...filteredApproved].sort((a, b) => {
+    if (adminSort === 'standard') {
+      // 낱말은 표준어, 표현은 문장 기준 (표현은 표준어가 없어요)
+      const c = (a.standard || a.text || '').localeCompare(b.standard || b.text || '', 'ko');
+      if (c !== 0) return c;
+    }
+    // 등록순 = 최신순 (가나다순에서 표준어가 같으면 이쪽도 최신이 먼저)
+    return new Date(b.registeredAt || 0).getTime() - new Date(a.registeredAt || 0).getTime();
+  });
+  const { pageItems, totalPages, clampedPage } = paginate(sortedApproved, adminPage, PAGE_SIZE);
 
   return (
     <section className="view">
@@ -1968,6 +2017,24 @@ function AdminView({
                 className={`sort-tab ${adminKind === key ? 'active' : ''}`}
                 onClick={() => {
                   setAdminKind(key);
+                  setAdminPage(1);
+                }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <div className="dict-controls-row" style={{ marginBottom: '0.6rem' }}>
+            <span className="dict-controls-label">정렬</span>
+            {[
+              ['registered', '등록순(최신순)'],
+              ['standard', '표준어 가나다순'],
+            ].map(([key, label]) => (
+              <button
+                key={key}
+                className={`sort-tab ${adminSort === key ? 'active' : ''}`}
+                onClick={() => {
+                  setAdminSort(key);
                   setAdminPage(1);
                 }}
               >
@@ -3069,13 +3136,20 @@ export default function App() {
             {view === 'memory' && <MemoryGameView words={words} />}
             {view === 'quiz' && <QuizView words={words} onGoWord={handleSelectWord} onError={setDbError} />}
             {/* 등록 화면은 예전에 입력했던 닉네임을 자동으로 채우지 않고, 매번 새로 입력하게 해요. */}
-            {view === 'register' && <RegisterView defaultNickname="" onSubmit={handleRegisterNew} checkDuplicate={(vals) => checkDuplicate('word', vals)} />}
-            {view === 'registerExpression' && (
-              <RegisterExpressionView
-                defaultNickname=""
-                onSubmit={handleRegisterExpression}
-                checkDuplicate={(vals) => checkDuplicate('expression', vals)}
-              />
+            {view === 'register' && (
+              <RegisterHub>
+                {(kind) =>
+                  kind === 'word' ? (
+                    <RegisterView defaultNickname="" onSubmit={handleRegisterNew} checkDuplicate={(vals) => checkDuplicate('word', vals)} />
+                  ) : (
+                    <RegisterExpressionView
+                      defaultNickname=""
+                      onSubmit={handleRegisterExpression}
+                      checkDuplicate={(vals) => checkDuplicate('expression', vals)}
+                    />
+                  )
+                }
+              </RegisterHub>
             )}
             {view === 'admin' && (
               <AdminView
