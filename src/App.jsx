@@ -2923,6 +2923,8 @@ export default function App() {
       })
     );
     if (updatedWord) {
+      // 화면에 쓰는 이미지·음성 캐시도 새 값으로 바꿔요. (안 바꾸면 저장은 됐어도 예전 음성이 계속 보여요.)
+      setMediaMap((prev) => ({ ...prev, [wordId]: { imageUrl: updatedWord.imageUrl, audio: updatedWord.audio } }));
       try {
         await dbSaveWord(updatedWord);
       } catch (e) {
