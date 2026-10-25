@@ -19,7 +19,7 @@ service cloud.firestore {
 
     function isAdmin() {
       return request.auth != null
-        && request.auth.token.email == 'chuja2605@gmail.com';
+        && request.auth.token.email == 'ADMIN_EMAIL_HERE';
     }
 
     // 값이 없거나, 문자열이면서 최대 길이 이하

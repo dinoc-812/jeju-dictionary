@@ -475,6 +475,9 @@ function GlobalStyle() {
       .btn-small { padding: 0.35rem 0.9rem; font-size: 0.85rem; }
       .word-row-select { display: flex; align-items: stretch; gap: 0.5rem; }
       .word-row-select > .word-row { flex: 1; min-width: 0; }
+      .pending-check { display: flex; align-items: center; gap: 0.5rem; cursor: pointer; }
+      .pending-check input { width: 1.2rem; height: 1.2rem; accent-color: var(--accent-500); cursor: pointer; flex-shrink: 0; }
+      .pending-check .pending-type { margin: 0; }
       .row-check {
         display: flex; align-items: center; justify-content: center; flex-shrink: 0;
         width: 2.4rem; background: var(--white); border: 2px solid var(--line); border-radius: 16px; cursor: pointer;
@@ -1870,6 +1873,8 @@ function AdminView({
   onLogout,
   onApprove,
   onReject,
+  onApproveMany,
+  onRejectMany,
   onAdminUpdate,
   onAdminDelete,
   onPrepareEdit,
@@ -1882,6 +1887,10 @@ function AdminView({
   const [loginPassword, setLoginPassword] = useState('');
   const [loginError, setLoginError] = useState('');
   const [loginBusy, setLoginBusy] = useState(false);
+  const [pendingSel, setPendingSel] = useState([]); // 일괄 처리용으로 체크한 승인 대기 id
+  const [bulkBusy, setBulkBusy] = useState('');
+  const [bulkMsg, setBulkMsg] = useState('');
+  const [confirmBulkReject, setConfirmBulkReject] = useState(false);
   const [tab, setTab] = useState('pending');
   const [editingId, setEditingId] = useState(null);
   const [preparingEditId, setPreparingEditId] = useState(null);
@@ -1933,6 +1942,38 @@ function AdminView({
     );
   }
 
+  const pendingIds = words.filter((w) => w.status === 'pending').map((w) => w.id);
+  // 처리가 끝나서 목록에서 사라진 항목은 선택에서도 빼요.
+  const selIds = pendingSel.filter((id) => pendingIds.includes(id));
+
+  function toggleSel(id) {
+    setBulkMsg('');
+    setConfirmBulkReject(false);
+    setPendingSel((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  }
+
+  function selectPending(ids) {
+    setBulkMsg('');
+    setConfirmBulkReject(false);
+    setPendingSel(ids);
+  }
+
+  async function runBulk(kind) {
+    const ids = selIds;
+    if (ids.length === 0 || bulkBusy) return;
+    setConfirmBulkReject(false);
+    setBulkMsg('');
+    setBulkBusy(kind === 'approve' ? '승인하는 중...' : '반려하는 중...');
+    try {
+      if (kind === 'approve') await onApproveMany(ids);
+      else await onRejectMany(ids);
+      setBulkMsg(`${ids.length}개를 ${kind === 'approve' ? '승인' : '반려'}했어요.`);
+    } finally {
+      setBulkBusy('');
+      setPendingSel([]);
+    }
+  }
+
   const pending = words.filter((w) => w.status === 'pending');
   // 숨김 처리된 항목도 관리자에게는 계속 보여요. (일반 사전 화면에서만 숨겨져요.)
   const approved = words.filter((w) => w.status === 'approved');
@@ -1973,6 +2014,53 @@ function AdminView({
       {tab === 'pending' && (
         <div className="pending-list">
           {pending.length === 0 && <p className="empty-state">대기 중인 항목이 없어요.</p>}
+          {pending.length > 0 && (
+            <div className="card-toolbar">
+              <strong>{selIds.length}개 선택</strong>
+              <button
+                type="button"
+                className="btn-ghost btn-small"
+                disabled={!!bulkBusy}
+                onClick={() => selectPending(selIds.length === pending.length ? [] : pending.map((x) => x.id))}
+              >
+                {selIds.length === pending.length ? '전체 해제' : '전체 선택'}
+              </button>
+              <button
+                type="button"
+                className="btn-ghost btn-small"
+                disabled={!!bulkBusy}
+                onClick={() => selectPending(pending.filter((x) => !x.duplicate).map((x) => x.id))}
+              >
+                중복 표시 제외하고 선택
+              </button>
+              <span className="spacer" />
+              <button
+                type="button"
+                className="btn-primary btn-small"
+                disabled={selIds.length === 0 || !!bulkBusy}
+                onClick={() => runBulk('approve')}
+              >
+                선택 승인
+              </button>
+              <button
+                type="button"
+                className="btn-ghost btn-small danger"
+                disabled={selIds.length === 0 || !!bulkBusy}
+                onClick={() => setConfirmBulkReject(true)}
+              >
+                선택 반려
+              </button>
+            </div>
+          )}
+          {confirmBulkReject && (
+            <div className="dup-badge" role="alert" style={{ display: 'flex', gap: '0.6rem', alignItems: 'center', flexWrap: 'wrap' }}>
+              <span>선택한 {selIds.length}개를 반려(삭제)할까요? 되돌릴 수 없어요.</span>
+              <button type="button" className="btn-ghost btn-small danger" onClick={() => runBulk('reject')}>반려하기</button>
+              <button type="button" className="btn-ghost btn-small" onClick={() => setConfirmBulkReject(false)}>취소</button>
+            </div>
+          )}
+          {bulkBusy && <p className="muted small">{bulkBusy}</p>}
+          {bulkMsg && !bulkBusy && <p className="muted small">{bulkMsg}</p>}
           {pending.map((p) => {
             const kind = itemKind(p);
             const typeLabel =
@@ -1981,7 +2069,10 @@ function AdminView({
                 : p.type === 'edit' ? '낱말 수정 제안' : '새 낱말';
             return (
               <div key={p.id} className={`pending-item ${p.duplicate ? 'is-duplicate' : ''}`}>
-                <p className="pending-type">{typeLabel}</p>
+                <label className="pending-check">
+                  <input type="checkbox" checked={selIds.includes(p.id)} disabled={!!bulkBusy} onChange={() => toggleSel(p.id)} />
+                  <span className="pending-type">{typeLabel}</span>
+                </label>
                 {p.duplicate && p.type !== 'edit' && (
                   <p className="dup-badge">⚠ 중복된 {kind === 'expression' ? '표현' : '낱말'} — 이미 사전에 있는데 무시하고 신청했어요</p>
                 )}
@@ -2015,8 +2106,8 @@ function AdminView({
                 )}
                 <p className="muted small">신청자 {p.registeredBy} · {fmtDate(p.registeredAt)}</p>
                 <div className="form-actions">
-                  <button className="btn-primary" onClick={() => onApprove(p.id)}>승인</button>
-                  <button className="btn-ghost" onClick={() => onReject(p.id)}>반려</button>
+                  <button className="btn-primary" disabled={!!bulkBusy} onClick={() => onApprove(p.id)}>승인</button>
+                  <button className="btn-ghost" disabled={!!bulkBusy} onClick={() => onReject(p.id)}>반려</button>
                 </div>
               </div>
             );
@@ -2890,6 +2981,21 @@ export default function App() {
     }
   }
 
+  // 여러 개를 한 번에 처리해요. 하나씩 차례로 처리해서(저장 순서가 꼬이지 않게) 중간에 실패해도 나머지는 계속해요.
+  async function handleApproveMany(ids) {
+    for (const id of ids) {
+      await handleApprove(id);
+      await new Promise((r) => setTimeout(r, 0)); // 화면 상태가 갱신된 뒤 다음 항목으로
+    }
+  }
+
+  async function handleRejectMany(ids) {
+    for (const id of ids) {
+      await handleReject(id);
+      await new Promise((r) => setTimeout(r, 0));
+    }
+  }
+
   async function handleReject(pendingId) {
     setWords((prev) => prev.filter((w) => w.id !== pendingId));
     try {
@@ -3209,6 +3315,8 @@ export default function App() {
                 onLogout={handleAdminLogout}
                 onApprove={handleApprove}
                 onReject={handleReject}
+                onApproveMany={handleApproveMany}
+                onRejectMany={handleRejectMany}
                 onAdminUpdate={handleAdminUpdate}
                 onAdminDelete={handleAdminDelete}
                 onPrepareEdit={ensureMedia}
