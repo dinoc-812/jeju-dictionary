@@ -14,7 +14,10 @@ import {
   getDocs,
   setDoc,
   deleteDoc,
+  query,
+  where,
 } from 'firebase/firestore';
+import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged } from 'firebase/auth';
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -34,6 +37,23 @@ const app = initializeApp(firebaseConfig);
 // 저장이 실패하면 바로 화면에 에러가 뜨도록요.
 export const db = getFirestore(app);
 
+// ==================== 관리자 로그인 (Firebase 인증: 이메일/비밀번호) ====================
+// 관리자 계정은 Firebase 콘솔에서 직접 만든 계정 1개예요. 권한은 firestore.rules가 서버에서 확인해요.
+export const auth = getAuth(app);
+
+export function adminSignIn(email, password) {
+  return signInWithEmailAndPassword(auth, String(email || '').trim(), String(password || ''));
+}
+
+export function adminSignOut() {
+  return signOut(auth);
+}
+
+// 로그인 상태가 바뀔 때마다 callback(user | null)을 불러줘요. 처음에도 한 번 불러줘요.
+export function onAdminChange(callback) {
+  return onAuthStateChanged(auth, callback);
+}
+
 // 낱말 정보는 두 곳에 나눠서 저장해요.
 // 1) words 컬렉션: 표준어/제주어/뜻 같은 "가벼운" 글자 정보만.
 //    사전 목록·검색·정렬처럼 자주 불러오는 화면은 이 컬렉션만 읽기 때문에 빨라요.
@@ -52,8 +72,11 @@ const QUIZ_ATTEMPT_COLLECTION = 'quizAttempts';
 
 const EMPTY_MEDIA = { imageUrl: '', audio: { jeju: '', chuja: '' } };
 
-export async function dbGetWords() {
-  const snap = await getDocs(collection(db, WORDS_COLLECTION));
+// 일반 이용자는 "승인된" 낱말만 읽을 수 있어요. (보안 규칙이 그렇게 막아두기 때문에, 조회도 같은 조건으로 해야 해요.)
+// 관리자는 승인 대기 항목까지 전부 읽어요.
+export async function dbGetWords({ admin = false } = {}) {
+  const ref = collection(db, WORDS_COLLECTION);
+  const snap = await getDocs(admin ? ref : query(ref, where('status', '==', 'approved')));
   return snap.docs.map((d) => d.data());
 }
 
@@ -62,15 +85,22 @@ export async function dbGetWordMedia(id) {
   return snap.exists() ? { ...EMPTY_MEDIA, ...snap.data() } : EMPTY_MEDIA;
 }
 
+// 글자 정보(+이미지·음성)를 함께 저장해요. 이미지·음성을 먼저 저장하고 글자 정보를 나중에 저장해요.
+// (보안 규칙: 새 이미지·음성 문서는 같은 id의 낱말이 아직 없을 때만 일반 이용자가 만들 수 있어요.)
 export async function dbSaveWord(word) {
   const { imageUrl, audio, ...core } = word;
-  await Promise.all([
-    setDoc(doc(db, WORDS_COLLECTION, word.id), core),
-    setDoc(doc(db, MEDIA_COLLECTION, word.id), {
-      imageUrl: imageUrl || '',
-      audio: audio || { jeju: '', chuja: '' },
-    }),
-  ]);
+  await setDoc(doc(db, MEDIA_COLLECTION, word.id), {
+    imageUrl: imageUrl || '',
+    audio: audio || { jeju: '', chuja: '' },
+  });
+  await setDoc(doc(db, WORDS_COLLECTION, word.id), core);
+}
+
+// 글자 정보만 저장해요. (댓글 추가·삭제, 숨김 처리처럼 이미지·음성은 건드리지 않아야 하는 경우)
+// 이미지·음성은 words 목록에 들어 있지 않아서, dbSaveWord로 저장하면 비어 있는 값으로 덮어써질 수 있어요.
+export async function dbSaveWordCore(word) {
+  const { imageUrl, audio, ...core } = word; // eslint-disable-line no-unused-vars
+  await setDoc(doc(db, WORDS_COLLECTION, word.id), core);
 }
 
 export async function dbDeleteWord(id) {

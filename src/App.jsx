@@ -4,6 +4,10 @@ import {
   dbGetWords,
   dbGetWordMedia,
   dbSaveWord,
+  dbSaveWordCore,
+  adminSignIn,
+  adminSignOut,
+  onAdminChange,
   dbDeleteWord,
   dbGetToday,
   dbSetToday,
@@ -23,7 +27,6 @@ import { AR, normalizeAraea, finalizeAraea } from './jejuInput';
 
 // ==================== 상수 ====================
 const NICK_KEY = 'jejumal:nickname'; // 닉네임은 각자 기기(브라우저)에만 저장돼요.
-const ADMIN_PIN = '0640'; // 데모용 임시 PIN. 실제 서비스에서는 반드시 별도 로그인으로 교체하세요.
 // Firestore 문서 하나는 최대 1MB까지만 저장할 수 있어서, Claude 미리보기 버전보다
 // 이미지/음성 용량 제한을 줄여뒀어요. (이미지 1장 + 음성 2개를 합쳐도 1MB를 넘지 않도록)
 const MAX_IMAGE_BYTES = 500000; // 이미지 첨부 용량 제한(약 500KB, base64 인코딩 후 기준)
@@ -414,7 +417,7 @@ function GlobalStyle() {
       .comment-empty { color: var(--ink-500); font-size: 0.85rem; }
       .comment-form { display: flex; flex-direction: column; gap: 0.5rem; }
       .notice-card { border: 2px solid var(--line); border-radius: 18px; padding: 1.25rem; background: var(--white); display: flex; flex-direction: column; gap: 0.75rem; }
-      .pin-form { display: flex; flex-direction: column; gap: 0.75rem; max-width: 260px; }
+      .pin-form { display: flex; flex-direction: column; gap: 0.75rem; max-width: 300px; }
       .pending-list { display: flex; flex-direction: column; gap: 0.9rem; }
       .pending-item, .admin-word-item {
         border: 2px solid var(--line); border-radius: 18px; padding: 0.9rem 1rem;
@@ -1864,6 +1867,7 @@ function AdminView({
   proverbs,
   unlocked,
   onUnlock,
+  onLogout,
   onApprove,
   onReject,
   onAdminUpdate,
@@ -1874,8 +1878,10 @@ function AdminView({
   onUpdateProverb,
   onDeleteProverb,
 }) {
-  const [pin, setPin] = useState('');
-  const [pinError, setPinError] = useState('');
+  const [loginEmail, setLoginEmail] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
+  const [loginError, setLoginError] = useState('');
+  const [loginBusy, setLoginBusy] = useState(false);
   const [tab, setTab] = useState('pending');
   const [editingId, setEditingId] = useState(null);
   const [preparingEditId, setPreparingEditId] = useState(null);
@@ -1897,12 +1903,18 @@ function AdminView({
     setEditingId(id);
   }
 
-  function handlePinSubmit() {
-    if (onUnlock(pin)) {
-      setPinError('');
-    } else {
-      setPinError('PIN이 올바르지 않아요.');
+  async function handleLoginSubmit() {
+    if (loginBusy) return;
+    if (!loginEmail.trim() || !loginPassword) {
+      setLoginError('이메일과 비밀번호를 입력해주세요.');
+      return;
     }
+    setLoginBusy(true);
+    setLoginError('');
+    const err = await onUnlock(loginEmail, loginPassword);
+    setLoginBusy(false);
+    if (err) setLoginError(err);
+    else setLoginPassword('');
   }
 
   if (!unlocked) {
@@ -1910,9 +1922,12 @@ function AdminView({
       <section className="view">
         <h2 className="view-title">관리자</h2>
         <div className="pin-form">
-          <Field label="관리자 PIN" required type="password" value={pin} onChange={setPin} onEnter={handlePinSubmit} />
-          {pinError && <p className="form-error">{pinError}</p>}
-          <button type="button" className="btn-primary" onClick={handlePinSubmit}>확인</button>
+          <Field label="관리자 이메일" required type="email" value={loginEmail} onChange={setLoginEmail} onEnter={handleLoginSubmit} />
+          <Field label="비밀번호" required type="password" value={loginPassword} onChange={setLoginPassword} onEnter={handleLoginSubmit} />
+          {loginError && <p className="form-error">{loginError}</p>}
+          <button type="button" className="btn-primary" onClick={handleLoginSubmit} disabled={loginBusy}>
+            {loginBusy ? '확인 중...' : '로그인'}
+          </button>
         </div>
       </section>
     );
@@ -1936,7 +1951,10 @@ function AdminView({
 
   return (
     <section className="view">
-      <h2 className="view-title">관리자</h2>
+      <div className="eyebrow-row">
+        <h2 className="view-title" style={{ margin: 0 }}>관리자</h2>
+        <button type="button" className="btn-ghost" onClick={onLogout}>로그아웃</button>
+      </div>
       <div className="admin-tabs">
         <button className={`sort-tab ${tab === 'pending' ? 'active' : ''}`} onClick={() => setTab('pending')}>
           승인 대기 ({pending.length})
@@ -2602,10 +2620,23 @@ export default function App() {
   const [selectedIds, setSelectedIds] = useState([]); // 카드 만들기용으로 체크한 낱말/표현 id
   const [cardBusy, setCardBusy] = useState(''); // 카드 PDF를 만드는 동안 보여줄 진행 문구
 
+  // 관리자 로그인 상태(Firebase 인증). 처음 한 번 상태가 확인된 뒤에 낱말을 불러와요.
+  const [authReady, setAuthReady] = useState(false);
+  useEffect(
+    () =>
+      onAdminChange((user) => {
+        setAdminUnlocked(!!user);
+        setAuthReady(true);
+      }),
+    []
+  );
+
+  // 일반 이용자는 승인된 낱말만, 관리자는 승인 대기 항목까지 불러와요. (로그인/로그아웃하면 다시 불러와요.)
   useEffect(() => {
+    if (!authReady) return;
     (async () => {
       try {
-        const list = await dbGetWords();
+        const list = await dbGetWords({ admin: adminUnlocked });
         setWords(list || []);
       } catch (e) {
         console.error('낱말을 불러오지 못했어요', e);
@@ -2629,7 +2660,7 @@ export default function App() {
       }
       setLoaded(true);
     })();
-  }, []);
+  }, [authReady, adminUnlocked]);
 
   useEffect(() => {
     if (!loaded) return;
@@ -2773,7 +2804,7 @@ export default function App() {
     );
     if (updatedWord) {
       try {
-        await dbSaveWord(updatedWord);
+        await dbSaveWordCore(updatedWord);
       } catch (e) {
         console.error('저장 실패', e);
         setDbError(`저장하지 못했어요. Firebase 연결 또는 Firestore 보안 규칙을 확인해주세요. (에러: ${e.code || e.message || e})`);
@@ -2793,7 +2824,7 @@ export default function App() {
     );
     if (updatedWord) {
       try {
-        await dbSaveWord(updatedWord);
+        await dbSaveWordCore(updatedWord);
       } catch (e) {
         console.error('저장 실패', e);
         setDbError(`저장하지 못했어요. Firebase 연결 또는 Firestore 보안 규칙을 확인해주세요. (에러: ${e.code || e.message || e})`);
@@ -2922,7 +2953,7 @@ export default function App() {
     );
     if (updatedWord) {
       try {
-        await dbSaveWord(updatedWord);
+        await dbSaveWordCore(updatedWord);
       } catch (e) {
         console.error('저장 실패', e);
         setDbError(`저장하지 못했어요. Firebase 연결 또는 Firestore 보안 규칙을 확인해주세요. (에러: ${e.code || e.message || e})`);
@@ -2971,12 +3002,26 @@ export default function App() {
     }
   }
 
-  function handleUnlock(pin) {
-    if (pin === ADMIN_PIN) {
-      setAdminUnlocked(true);
-      return true;
+  // 관리자 로그인: 성공하면 '' , 실패하면 화면에 보여줄 안내 문구를 돌려줘요.
+  async function handleAdminLogin(email, password) {
+    try {
+      await adminSignIn(email, password);
+      return '';
+    } catch (e) {
+      console.error('관리자 로그인 실패', e);
+      if (e && (e.code === 'auth/too-many-requests')) return '시도가 너무 많아요. 잠시 후 다시 해주세요.';
+      if (e && (e.code === 'auth/network-request-failed')) return '인터넷 연결을 확인해주세요.';
+      return '이메일 또는 비밀번호가 올바르지 않아요.';
     }
-    return false;
+  }
+
+  async function handleAdminLogout() {
+    try {
+      await adminSignOut();
+    } catch (e) {
+      console.error('로그아웃 실패', e);
+    }
+    setView('home');
   }
 
   async function handleShuffleToday() {
@@ -3158,7 +3203,8 @@ export default function App() {
                 words={wordsWithMedia}
                 proverbs={proverbs}
                 unlocked={adminUnlocked}
-                onUnlock={handleUnlock}
+                onUnlock={handleAdminLogin}
+                onLogout={handleAdminLogout}
                 onApprove={handleApprove}
                 onReject={handleReject}
                 onAdminUpdate={handleAdminUpdate}

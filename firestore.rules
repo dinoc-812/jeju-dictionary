@@ -1,0 +1,143 @@
+rules_version = '2';
+
+// ============================================================================
+//  추자초 5학년 말바당 사전 — Firestore 보안 규칙
+//
+//  ★ 아래 'ADMIN_EMAIL_HERE'를 Firebase 인증에 만든 관리자 계정 이메일로 바꿔서 게시하세요.
+//    (예: 'teacher@gmail.com' — 따옴표는 그대로 두고 이메일만 바꿔요.)
+//
+//  요약
+//   - 낱말·표현(words): 누구나 "승인된 것"만 읽기. 새 등록/수정 신청은 "승인 대기"로만 쓰기. 댓글은 누구나 추가만.
+//                       승인·수정·삭제·숨김·대기 목록 보기는 관리자만.
+//   - 이미지·음성(wordMedia): 승인된 낱말의 것만 읽기. 새로 만들기만 허용(덮어쓰기·삭제는 관리자만).
+//   - 속담(proverbs): 누구나 읽기, 쓰기는 관리자만.
+//   - meta(오늘의 낱말·문장·퀴즈): 누구나 읽기·갱신(첫 접속자가 그날 값을 정해요). 삭제는 관리자만.
+//   - quizAttempts(퀴즈 참여 기록): 자기 기록 id를 알 때만 읽기, 새로 만들기만 허용. 목록 보기·수정·삭제는 관리자만.
+// ============================================================================
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isAdmin() {
+      return request.auth != null
+        && request.auth.token.email == 'ADMIN_EMAIL_HERE';
+    }
+
+    // 값이 없거나, 문자열이면서 최대 길이 이하
+    function okStr(d, k, max) {
+      return !(k in d) || (d[k] is string && d[k].size() <= max);
+    }
+
+    function okExamples(d) {
+      return !('examples' in d)
+        || (d.examples is map
+            && d.examples.get('jeju', '') is string && d.examples.get('jeju', '').size() <= 1000
+            && d.examples.get('chuja', '') is string && d.examples.get('chuja', '').size() <= 1000);
+    }
+
+    // 일반 이용자가 만들 수 있는 "승인 대기" 낱말/표현 문서인지
+    function validPending(d, id) {
+      return d.keys().hasOnly([
+          'id', 'kind', 'type', 'targetId', 'standard', 'jeju', 'chuja', 'meaning', 'examples',
+          'extraDialect', 'language', 'text', 'status', 'hidden', 'duplicate', 'registeredBy',
+          'registeredAt', 'lastEditedBy', 'lastEditedAt', 'comments'
+        ])
+        && d.id == id
+        && d.status == 'pending'
+        && d.get('type', 'new') in ['new', 'edit']
+        && d.get('kind', 'word') in ['word', 'expression']
+        && d.get('hidden', false) == false
+        && d.get('comments', []).size() == 0
+        && okStr(d, 'targetId', 60)
+        && okStr(d, 'standard', 200) && okStr(d, 'jeju', 200) && okStr(d, 'chuja', 200)
+        && okStr(d, 'meaning', 1000) && okStr(d, 'text', 1000) && okStr(d, 'language', 30)
+        && okStr(d, 'registeredBy', 60) && okStr(d, 'registeredAt', 40)
+        && okStr(d, 'lastEditedBy', 60) && okStr(d, 'lastEditedAt', 40)
+        && okExamples(d);
+    }
+
+    // 댓글 한 개를 "맨 끝에" 추가하는 변경인지 (기존 댓글은 그대로)
+    function addsOneComment() {
+      let oldC = resource.data.get('comments', []);
+      let newC = request.resource.data.comments;
+      return newC is list
+        && newC.size() == oldC.size() + 1
+        && newC.size() <= 300
+        && newC[0:oldC.size()] == oldC
+        && newC[oldC.size()] is map
+        && newC[oldC.size()].get('text', '') is string
+        && newC[oldC.size()].get('text', '').size() <= 500
+        && newC[oldC.size()].get('nickname', '') is string
+        && newC[oldC.size()].get('nickname', '').size() <= 60;
+    }
+
+    // ---------- 낱말·표현 ----------
+    match /words/{id} {
+      // 승인된 문서만 누구나 읽기 (목록 조회는 where('status','==','approved')로 해야 해요)
+      allow get, list: if resource.data.status == 'approved' || isAdmin();
+
+      allow create: if isAdmin() || validPending(request.resource.data, id);
+
+      // 일반 이용자: 승인된 낱말에 댓글 추가만
+      allow update: if isAdmin()
+        || (resource.data.status == 'approved'
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['comments'])
+            && addsOneComment());
+
+      allow delete: if isAdmin();
+    }
+
+    // ---------- 이미지·음성 ----------
+    match /wordMedia/{id} {
+      allow get: if isAdmin()
+        || (exists(/databases/$(database)/documents/words/$(id))
+            && get(/databases/$(database)/documents/words/$(id)).data.status == 'approved');
+
+      // 새로 만들기만 (같은 id의 낱말이 아직 없을 때). 앱은 이미지·음성을 먼저, 글자 정보를 나중에 저장해요.
+      allow create: if isAdmin()
+        || (!exists(/databases/$(database)/documents/words/$(id))
+            && request.resource.data.keys().hasOnly(['imageUrl', 'audio'])
+            && request.resource.data.get('imageUrl', '') is string
+            && request.resource.data.get('imageUrl', '').size() <= 800000
+            && request.resource.data.get('audio', {}) is map
+            && request.resource.data.get('audio', {}).keys().hasOnly(['jeju', 'chuja'])
+            && request.resource.data.get('audio', {}).get('jeju', '') is string
+            && request.resource.data.get('audio', {}).get('jeju', '').size() <= 800000
+            && request.resource.data.get('audio', {}).get('chuja', '') is string
+            && request.resource.data.get('audio', {}).get('chuja', '').size() <= 800000);
+
+      allow update, delete: if isAdmin();
+    }
+
+    // ---------- 속담(오늘의 문장) ----------
+    match /proverbs/{id} {
+      allow read: if true;
+      allow write: if isAdmin();
+    }
+
+    // ---------- 오늘의 낱말·문장·퀴즈 ----------
+    match /meta/{doc} {
+      allow read: if true;
+      allow create, update: if isAdmin()
+        || (doc in ['today', 'todayProverb', 'quizToday']
+            && request.resource.data.size() <= 12
+            && okStr(request.resource.data, 'date', 20));
+      allow delete: if isAdmin();
+    }
+
+    // ---------- 퀴즈 참여 기록 ----------
+    match /quizAttempts/{id} {
+      allow get: if true;
+      allow list: if isAdmin();
+      allow create: if isAdmin()
+        || (request.resource.data.keys().hasOnly(['date', 'choice', 'correct', 'at'])
+            && okStr(request.resource.data, 'date', 20)
+            && okStr(request.resource.data, 'at', 40));
+      allow update, delete: if isAdmin();
+    }
+
+    // 그 밖의 모든 문서는 접근 불가
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
