@@ -475,6 +475,7 @@ function GlobalStyle() {
       .btn-small { padding: 0.35rem 0.9rem; font-size: 0.85rem; }
       .word-row-select { display: flex; align-items: stretch; gap: 0.5rem; }
       .word-row-select > .word-row { flex: 1; min-width: 0; }
+      .count-line { margin: 0 0 0.8rem; font-size: 0.85rem; color: var(--ink-500); font-weight: 400; }
       .pending-check { display: flex; align-items: center; gap: 0.5rem; cursor: pointer; }
       .pending-check input { width: 1.2rem; height: 1.2rem; accent-color: var(--accent-500); cursor: pointer; flex-shrink: 0; }
       .pending-check .pending-type { margin: 0; }
@@ -1423,7 +1424,7 @@ function Header({ view, setView }) {
 }
 
 // ==================== 홈 ====================
-function HomeView({ todayWord, approvedCount, todayProverb, onShuffleProverb, onGoRegister, onViewToday, onShuffleToday }) {
+function HomeView({ todayWord, approvedCount, expressionCount, todayProverb, onShuffleProverb, onGoRegister, onViewToday, onShuffleToday }) {
   const ex = todayWord?.examples || {};
   return (
     <section className="view home-view">
@@ -1493,7 +1494,7 @@ function HomeView({ todayWord, approvedCount, todayProverb, onShuffleProverb, on
           추자초 5학년 말바당 사전은 표준어, 제주어, 추자생활언어를 나란히 기록하고 나누는 사전이에요. 누구나 새로운 낱말과 표현을 등록할 수 있고,
           관리자의 확인을 거쳐 사전에 실려요.
         </p>
-        <p className="stat">지금까지 모인 낱말 {approvedCount}개</p>
+        <p className="stat">지금까지 모인 낱말 {approvedCount}개 · 표현 {expressionCount}개</p>
       </div>
     </section>
   );
@@ -1531,6 +1532,10 @@ function DictionaryView({
   return (
     <section className="view">
       <h2 className="view-title">사전 둘러보기</h2>
+      <p className="count-line">
+        낱말 {approved.filter((w) => itemKind(w) === 'word').length}개 · 표현 {approved.filter((w) => itemKind(w) === 'expression').length}개
+        {kindFilter !== 'all' || term.trim() ? ` · 지금 목록 ${sorted.length}개` : ''}
+      </p>
       <div className="card-toolbar">
         <span>
           카드로 만들 낱말/표현을 체크하세요. <strong>{validSelected.length}개 선택</strong>
@@ -2117,6 +2122,12 @@ function AdminView({
 
       {tab === 'all' && (
         <div>
+          <p className="count-line">
+            공개 중 낱말 {approved.filter((w) => !w.hidden && itemKind(w) === 'word').length}개 · 표현 {approved.filter((w) => !w.hidden && itemKind(w) === 'expression').length}개
+            {' · '}숨김 {approved.filter((w) => w.hidden).length}개
+            {' = '}전체 {approved.length}개
+            {adminKind !== 'all' || query.trim() ? ` (지금 목록 ${sortedApproved.length}개)` : ''}
+          </p>
           <div className="dict-controls-row" style={{ marginBottom: '0.6rem' }}>
             {[
               ['all', '전체'],
@@ -3224,6 +3235,7 @@ export default function App() {
   }, [view, adminUnlocked, words]);
 
   const approvedCount = words.filter((w) => w.status === 'approved' && !w.hidden && itemKind(w) === 'word').length;
+  const expressionCount = words.filter((w) => w.status === 'approved' && !w.hidden && itemKind(w) === 'expression').length;
   const selectedWord = withMedia(words.find((w) => w.id === selectedWordId) || null);
   const todayWordDisplay = withMedia(todayWord);
   const wordsWithMedia = words.map(withMedia);
@@ -3247,6 +3259,7 @@ export default function App() {
               <HomeView
                 todayWord={todayWordDisplay}
                 approvedCount={approvedCount}
+                expressionCount={expressionCount}
                 todayProverb={todayProverb}
                 onShuffleProverb={handleShuffleProverb}
                 onGoRegister={() => setView('register')}
